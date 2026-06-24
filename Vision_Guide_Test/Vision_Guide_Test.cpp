@@ -199,11 +199,13 @@ int main() {
 #include "RealImageFeatureDetector.h"
 
 
-cv::Mat g_original_image;          // 带标记和ROI的原始图像（用于显示）
-cv::Mat g_display_image;           // 当前显示图像（缩放/裁剪后）
 double g_scale = 1.0;              // 缩放倍数
-cv::Point2d g_center;              // 显示中心在原始图像中的坐标 (x,y)
-bool g_need_update = true;         // 需要刷新显示
+// ===== 全局变量（用于平移+缩放） =====
+cv::Mat g_original_image;          // 原始图像（带检测结果）
+cv::Mat g_display_image;           // 当前显示的图像
+cv::Mat g_transform;               // 2x3 仿射变换矩阵（控制平移和缩放）
+bool g_need_update = true;
+const cv::Size g_window_size = cv::Size(1200, 800); // 窗口尺寸
 
 // 鼠标交互
 cv::Point2d g_mouse_pos = cv::Point2d(-1, -1); 
@@ -216,115 +218,73 @@ std::vector<cv::Point2f> g_detected_points;
 bool g_detection_success = false;
 
 void onMouse(int event, int x, int y, int flags, void* userdata) {
-    // 计算鼠标在原始图像中的坐标
-    double img_x = (x - g_display_image.cols / 2.0) / g_scale + g_center.x;
-    double img_y = (y - g_display_image.rows / 2.0) / g_scale + g_center.y;
+    static cv::Point2d drag_start;  // 拖拽起始点（屏幕坐标）
+    static cv::Mat start_transform; // 拖拽开始时的变换矩阵
 
-    if (event == cv::EVENT_MOUSEMOVE) {
-        // 更新鼠标位置
-        if (img_x >= 0 && img_x < g_original_image.cols &&
-            img_y >= 0 && img_y < g_original_image.rows) {
-            g_mouse_pos = cv::Point2d(img_x, img_y);
-        }
-        else {
-            g_mouse_pos = cv::Point2d(-1, -1);
-        }
+    if (event == cv::EVENT_MOUSEWHEEL) {
+        // -------- 滚轮缩放（以鼠标位置为中心） --------
+        int delta = cv::getMouseWheelDelta(flags);
+        double scale_factor = (delta > 0) ? 1.1 : 0.9;
+        double new_scale = g_transform.at<double>(0, 0) * scale_factor;
+        new_scale = std::max(0.1, std::min(10.0, new_scale)); // 限制 0.1~10 倍
 
-        // 如果正在拖拽，平移图像
-        if (g_dragging) {
-            double dx = img_x - g_drag_start.x;
-            double dy = img_y - g_drag_start.y;
-            g_center.x -= dx;
-            g_center.y -= dy;
-            g_drag_start = cv::Point2d(img_x, img_y);
-            g_need_update = true;
-        }
+        // 获取鼠标在原始图像中的坐标（基于当前变换的逆变换）
+        cv::Mat inv_transform;
+        cv::invertAffineTransform(g_transform, inv_transform);
+        cv::Point2d mouse_orig;
+        mouse_orig.x = inv_transform.at<double>(0, 0) * x + inv_transform.at<double>(0, 1) * y + inv_transform.at<double>(0, 2);
+        mouse_orig.y = inv_transform.at<double>(1, 0) * x + inv_transform.at<double>(1, 1) * y + inv_transform.at<double>(1, 2);
+
+        // 构建新的变换矩阵：先缩放到 new_scale，再平移使得鼠标指向的点保持不变
+        cv::Mat new_transform = cv::Mat::eye(2, 3, CV_64F);
+        new_transform.at<double>(0, 0) = new_scale;
+        new_transform.at<double>(1, 1) = new_scale;
+        // 计算平移量：使得鼠标指向的原图点 (mouse_orig) 在缩放后仍然映射到屏幕坐标 (x, y)
+        new_transform.at<double>(0, 2) = x - new_scale * mouse_orig.x;
+        new_transform.at<double>(1, 2) = y - new_scale * mouse_orig.y;
+
+        g_transform = new_transform;
         g_need_update = true;
     }
     else if (event == cv::EVENT_LBUTTONDOWN) {
-        g_dragging = true;
-        g_drag_start = cv::Point2d(img_x, img_y);
-        std::cout << "[Mouse] Start drag at (" << img_x << ", " << img_y << ")" << std::endl;
+        // 计算点击位置对应的原始图像坐标
+        cv::Mat inv_transform;
+        cv::invertAffineTransform(g_transform, inv_transform);
+        cv::Point2d mouse_orig;
+        mouse_orig.x = inv_transform.at<double>(0, 0) * x + inv_transform.at<double>(0, 1) * y + inv_transform.at<double>(0, 2);
+        mouse_orig.y = inv_transform.at<double>(1, 0) * x + inv_transform.at<double>(1, 1) * y + inv_transform.at<double>(1, 2);
+        std::cout << "[Mouse] Original image coordinate: (" << mouse_orig.x << ", " << mouse_orig.y << ")" << std::endl;
+        drag_start = cv::Point2d(x, y);
+        start_transform = g_transform.clone();
+    }
+    else if (event == cv::EVENT_MOUSEMOVE && (flags & cv::EVENT_FLAG_LBUTTON)) {
+        // -------- 拖拽平移 --------
+        double dx = x - drag_start.x;
+        double dy = y - drag_start.y;
+        // 在起始变换的基础上增加平移量
+        g_transform = start_transform.clone();
+        g_transform.at<double>(0, 2) += dx;
+        g_transform.at<double>(1, 2) += dy;
+        g_need_update = true;
     }
     else if (event == cv::EVENT_LBUTTONUP) {
-        g_dragging = false;
-        std::cout << "[Mouse] End drag." << std::endl;
-    }
-    else if (event == cv::EVENT_MOUSEWHEEL) {
-        int delta = cv::getMouseWheelDelta(flags);
-        double scale_factor = (delta > 0) ? 1.1 : 0.9;
-        double new_scale = g_scale * scale_factor;
-        new_scale = std::max(0.1, std::min(10.0, new_scale));
-
-        // 以鼠标位置为中心缩放
-        g_center.x = img_x;
-        g_center.y = img_y;
-        g_scale = new_scale;
-        g_need_update = true;
-        std::cout << "[Zoom] Scale: " << g_scale << ", center: (" << g_center.x << ", " << g_center.y << ")" << std::endl;
+        // 左键松开，不做特殊处理
     }
 }
 
 void updateDisplay() {
     if (g_original_image.empty()) return;
 
-    // 计算要裁剪的区域
-    int half_w = (int)(g_display_image.cols / (2.0 * g_scale));
-    int half_h = (int)(g_display_image.rows / (2.0 * g_scale));
-    cv::Rect roi;
-    roi.x = (int)(g_center.x - half_w);
-    roi.y = (int)(g_center.y - half_h);
-    roi.width = 2 * half_w;
-    roi.height = 2 * half_h;
+    // 应用仿射变换到目标窗口尺寸
+    cv::Mat warped;
+    cv::warpAffine(g_original_image, warped, g_transform, g_window_size, cv::INTER_LINEAR);
 
-    // 边界保护
-    if (roi.x < 0) roi.x = 0;
-    if (roi.y < 0) roi.y = 0;
-    if (roi.x + roi.width > g_original_image.cols) roi.width = g_original_image.cols - roi.x;
-    if (roi.y + roi.height > g_original_image.rows) roi.height = g_original_image.rows - roi.y;
+    // 操作提示
+    cv::putText(warped, "Mouse: Scroll to zoom | Left-drag to pan | R to reset",
+        cv::Point(10, 60), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(200, 200, 200), 1);
 
-    cv::Mat cropped;
-    if (roi.width > 0 && roi.height > 0) {
-        cropped = g_original_image(roi).clone();
-    }
-    else {
-        cropped = g_original_image.clone();
-    }
-
-    // 缩放至显示窗口大小
-    if (g_scale != 1.0) {
-        cv::resize(cropped, cropped, cv::Size(g_display_image.cols, g_display_image.rows), 0, 0, cv::INTER_LINEAR);
-    }
-    else {
-        if (cropped.size() != g_display_image.size())
-            cv::resize(cropped, cropped, g_display_image.size());
-    }
-
-    if (g_mouse_pos.x >= 0 && g_mouse_pos.y >= 0) {
-        // 将鼠标位置映射到当前显示图像坐标
-        double disp_x = (g_mouse_pos.x - g_center.x) * g_scale + g_display_image.cols / 2.0;
-        double disp_y = (g_mouse_pos.y - g_center.y) * g_scale + g_display_image.rows / 2.0;
-
-        if (disp_x >= 0 && disp_x < g_display_image.cols &&
-            disp_y >= 0 && disp_y < g_display_image.rows) {
-            cv::Point pt((int)disp_x, (int)disp_y);
-            cv::line(cropped, cv::Point(pt.x - 15, pt.y), cv::Point(pt.x + 15, pt.y), cv::Scalar(0, 0, 255), 1);
-            cv::line(cropped, cv::Point(pt.x, pt.y - 15), cv::Point(pt.x, pt.y + 15), cv::Scalar(0, 0, 255), 1);
-            cv::circle(cropped, pt, 3, cv::Scalar(0, 0, 255), -1);
-            std::string coord_text = "(" + std::to_string((int)g_mouse_pos.x) + ", " + std::to_string((int)g_mouse_pos.y) + ")";
-            cv::putText(cropped, coord_text, cv::Point(pt.x + 20, pt.y - 10),
-                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(0, 0, 255), 1);
-        }
-    }
-
-    // 辅助信息（缩放倍数、操作提示）
-    cv::putText(cropped, "Zoom: " + std::to_string(g_scale), cv::Point(10, 30),
-        cv::FONT_HERSHEY_SIMPLEX, 0.6, cv::Scalar(0, 255, 0), 2);
-    cv::putText(cropped, "Mouse: move to see coords | Left-drag to pan | Scroll to zoom | R to reset",
-        cv::Point(10, cropped.rows - 20), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(200, 200, 200), 1);
-
-    g_display_image = cropped;
-    cv::imshow("Feature Extraction + Grid + Zoom + Pan", g_display_image);
+    g_display_image = warped;
+    cv::imshow("Feature Extraction + Grid + Zoom", g_display_image);
     g_need_update = false;
 }
 
@@ -343,21 +303,40 @@ int main() {
 
     // 配置6个ROI
     std::vector<ROIParams> roiParams(6);
-    // 
+    // 单独调整每个ROI
     roiParams[0].roi = cv::Rect(800, 1100, 300, 250);
-    roiParams[1].roi = cv::Rect(800, 1100, 300, 250);
-    roiParams[2].roi = cv::Rect(800, 1100, 300, 250);
-    roiParams[3].roi = cv::Rect(800, 1100, 300, 250);
-    roiParams[4].roi = cv::Rect(800, 1100, 300, 250);
-    roiParams[5].roi = cv::Rect(800, 1100, 300, 250);
+    // roiParams[0].minRadius = 10.0;                    //可设置其他参数，此处暂时不设
+    roiParams[0].minRadius = 50;
+    roiParams[0].maxRadius = 60;
 
-    // 检测参数，单独调整每个ROI
+    roiParams[1].roi = cv::Rect(1000, 1840, 300, 250);
+    roiParams[1].minRadius = 30;
+    roiParams[1].maxRadius = 50;
+
+    roiParams[2].roi = cv::Rect(1720, 2300, 300, 250);
+    roiParams[2].minRadius = 40;
+    roiParams[2].maxRadius = 50;
+
+    roiParams[3].roi = cv::Rect(2300, 2550, 300, 250);
+    roiParams[3].minRadius = 30;
+    roiParams[3].maxRadius = 40;
+
+    roiParams[4].roi = cv::Rect(3400, 1850, 500, 400);
+    roiParams[4].minRadius = 85;
+    roiParams[4].maxRadius = 95;
+
+    roiParams[5].roi = cv::Rect(1860, 1890, 300, 250);
+    roiParams[5].minRadius = 45;
+    roiParams[5].maxRadius = 55;
+
+
+    // 暂用,后面要逐个设置
     for (auto& p : roiParams) {
-        p.minRadius = 20.0;
-        p.maxRadius = 60.0;
-        p.minCircularity = 0.5;
+        // p.minRadius = 20.0;
+        // p.maxRadius = 180.0;
+        p.minCircularity = 0.1;
         p.minAspectRatio = 0.5;
-        p.maxAspectRatio = 2.0;
+        p.maxAspectRatio = 4.0;
     }
 
     g_roiParams = roiParams;
@@ -379,21 +358,75 @@ int main() {
     RealImageFeatureDetector detector;
     detector.setROIParams(roiParams);
 
-    std::vector<cv::Point2f> points;
-    bool success = detector.detect(raw_image, points);
-    g_detected_points = points;
+    // std::vector<cv::Point2f> points;
+    // bool success = detector.detect(raw_image, points);
+
+    std::vector<DetectedFeature> features;
+    bool success = detector.detectWithEllipse(raw_image, features);
+
+    // 新增调试：获取所有候选（仅当需要时，不影响原有输出）
+    std::vector<std::vector<DetectedFeature>> allCandidates;
+    detector.detectAllCandidates(raw_image, allCandidates);
+
+    // 在绘制循环中，先画所有候选（用黄色或橙色），再画最佳（红色）
+    
+    for (size_t i = 0; i < allCandidates.size(); ++i) {
+        for (const auto& cand : allCandidates[i]) {
+            // 画候选椭圆（浅色，比如黄色）
+            cv::ellipse(result_img, cand.ellipse, cv::Scalar(0, 255, 255), 1); // 黄色细线
+
+            // ===== 新增：显示长轴、短轴、平均半径、圆度 =====
+            std::string info = cv::format(
+                "R=%.1f  L=%.1f  S=%.1f",
+                cand.avgRadius,
+                cand.ellipse.size.width,
+                cand.ellipse.size.height
+            );
+            cv::putText(result_img, info,
+                cv::Point((int)cand.point.x - 60, (int)cand.point.y - 25),
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 0), 1);
+            // ================================================
+            // 
+            // 画候选中心小点
+            cv::circle(result_img, cv::Point((int)cand.point.x, (int)cand.point.y), 3, cv::Scalar(0, 255, 255), -1);
+        }
+    }
+
+
+
+
+
+    g_detected_points.clear();
+    for (const auto& feat : features) {
+        g_detected_points.push_back(feat.point);
+    }
     g_detection_success = success;
 
     if (success) {
-        for (size_t i = 0; i < points.size(); ++i) {
-            cv::circle(result_img, cv::Point((int)points[i].x, (int)points[i].y), 12, cv::Scalar(0, 255, 0), 3);
-            cv::drawMarker(result_img, cv::Point((int)points[i].x, (int)points[i].y),
+        for (size_t i = 0; i < features.size(); ++i) {
+            const auto& feat = features[i];
+            // 绘制红色拟合椭圆（新增）
+            cv::ellipse(result_img, feat.ellipse, cv::Scalar(0, 0, 255), 2);
+            
+            /*
+            std::string axis_info = "W:" + std::to_string((int)feat.ellipse.size.width) +
+                " H:" + std::to_string((int)feat.ellipse.size.height);
+            cv::putText(result_img, axis_info,
+                cv::Point((int)feat.point.x + 20, (int)feat.point.y - 20),
+                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 0), 1);
+            */
+
+            // 绘制中心点（绿色大圆）
+            cv::circle(result_img, cv::Point((int)feat.point.x, (int)feat.point.y), 12, cv::Scalar(0, 255, 0), 3);
+            // 绘制十字（红色）
+            cv::drawMarker(result_img, cv::Point((int)feat.point.x, (int)feat.point.y),
                 cv::Scalar(0, 0, 255), cv::MARKER_CROSS, 20, 2);
+            // 序号
             cv::putText(result_img, std::to_string(i + 1),
-                cv::Point((int)points[i].x + 15, (int)points[i].y - 15),
+                cv::Point((int)feat.point.x + 15, (int)feat.point.y - 15),
                 cv::FONT_HERSHEY_SIMPLEX, 0.8, cv::Scalar(255, 255, 0), 2);
         }
-        std::cout << "\nDetection SUCCESS. Found " << points.size() << " points." << std::endl;
+        std::cout << "\nDetection SUCCESS. Found " << features.size() << " points." << std::endl;
     }
     else {
         std::cout << "\nDetection FAILED. Check ROI parameters or image." << std::endl;
@@ -401,17 +434,41 @@ int main() {
 
     // 设置全局图像并启动窗口
     g_original_image = result_img;
-    g_center = cv::Point2d(g_original_image.cols / 2.0, g_original_image.rows / 2.0);
+
+    // 调试
+    // 初始化仿射变换矩阵（初始为全图显示，居中）
+    g_transform = cv::Mat::eye(2, 3, CV_64F);
+    // 计算初始缩放，使图像完整显示在窗口中
+    double scale_x = (double)g_window_size.width / g_original_image.cols;
+    double scale_y = (double)g_window_size.height / g_original_image.rows;
+    double init_scale = std::min(scale_x, scale_y);
+    // 如果图像比窗口小，不放大；如果大，缩小到窗口尺寸
+    if (init_scale < 1.0) {
+        g_transform.at<double>(0, 0) = init_scale;
+        g_transform.at<double>(1, 1) = init_scale;
+    }
+    // 居中显示
+    g_transform.at<double>(0, 2) = (g_window_size.width - g_original_image.cols * init_scale) / 2.0;
+    g_transform.at<double>(1, 2) = (g_window_size.height - g_original_image.rows * init_scale) / 2.0;
+
+    // 然后创建窗口并设置回调
+    cv::namedWindow("Feature Extraction + Grid + Zoom", cv::WINDOW_NORMAL);
+    cv::resizeWindow("Feature Extraction + Grid + Zoom", g_window_size.width, g_window_size.height);
+    cv::setMouseCallback("Feature Extraction + Grid + Zoom", onMouse);
+
+
+
+    // g_center = cv::Point2d(g_original_image.cols / 2.0, g_original_image.rows / 2.0);
     g_scale = 1.0;
     g_need_update = true;
 
     // 初始化显示图像大小
-    g_display_image = cv::Mat(800, 1200, g_original_image.type());
+    /*g_display_image = cv::Mat(800, 1200, g_original_image.type());
 
     cv::namedWindow("Feature Extraction + Grid + Zoom + Pan", cv::WINDOW_NORMAL);
     cv::resizeWindow("Feature Extraction + Grid + Zoom + Pan", 1200, 800);
     cv::setMouseCallback("Feature Extraction + Grid + Zoom + Pan", onMouse);
-
+    */
     // 主循环
     while (true) {
         if (g_need_update) {
@@ -420,7 +477,7 @@ int main() {
         char key = cv::waitKey(30);
         if (key == 27) break;  // ESC退出
         if (key == 'r' || key == 'R') {
-            g_center = cv::Point2d(g_original_image.cols / 2.0, g_original_image.rows / 2.0);
+            //g_center = cv::Point2d(g_original_image.cols / 2.0, g_original_image.rows / 2.0);
             g_scale = 1.0;
             g_need_update = true;
             std::cout << "[Reset] View reset to center." << std::endl;
