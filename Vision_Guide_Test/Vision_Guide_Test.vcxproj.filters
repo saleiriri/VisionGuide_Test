@@ -24,12 +24,18 @@
     <ClCompile Include="RealImageFeatureDetector.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="PoseSolver.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MultiFramePoseAverager.h">
       <Filter>头文件</Filter>
     </ClInclude>
     <ClInclude Include="RealImageFeatureDetector.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="PoseSolver.h">
       <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>

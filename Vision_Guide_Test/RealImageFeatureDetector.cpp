@@ -28,13 +28,13 @@ double RealImageFeatureDetector::calculateCircularity(const std::vector<cv::Poin
         cv::cvtColor(roi_img, gray, cv::COLOR_BGR2GRAY);
     }
     else {
-        gray = roi_img.clone();  // 假设已经是灰度图
+        gray = roi_img.clone();
     }
 
     // 高斯模糊
     cv::GaussianBlur(gray, gray, cv::Size(3, 3), 1.5);
 
-    // 自适应阈值二值化
+    // 二值化
     cv::Mat binary;
     cv::adaptiveThreshold(gray, binary, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C,cv::THRESH_BINARY_INV, 15, 8);
 
@@ -43,20 +43,18 @@ double RealImageFeatureDetector::calculateCircularity(const std::vector<cv::Poin
     cv::Canny(gray, edges, 20, 60); // 提取边缘
     cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
     
-    //cv::morphologyEx(edges, edges, cv::MORPH_OPEN, kernel);   // 开运算去除杂点
-    //cv::morphologyEx(edges, binary, cv::MORPH_CLOSE, kernel); // 闭合断开的孔边缘
+    //cv::morphologyEx(edges, edges, cv::MORPH_OPEN, kernel);   // 开运算
     cv::morphologyEx(edges, edges, cv::MORPH_CLOSE, kernel);
 
-    // 查看canny图片
+    // 调试
     cv::imshow("Canny Edges", edges);
-    cv::waitKey(0); // 等待按键，防止窗口一闪而过
+    cv::waitKey(0);
     
 
     return true;
 }*/
 
 // 双线性差值亚像素灰度值采样
-// cpp
 static float getPixelValue(const cv::Mat& img, float x, float y) {
     int x0 = (int)std::floor(x);
     int y0 = (int)std::floor(y);
@@ -66,7 +64,7 @@ static float getPixelValue(const cv::Mat& img, float x, float y) {
     float dx = x - x0;
     float dy = y - y0;
 
-    // 处理常见类型：CV_8UC1 和 CV_32FC1
+    // 处理不同类型
     if (img.type() == CV_8UC1) {
         float v00 = img.at<uchar>(y0, x0);
         float v10 = img.at<uchar>(y0, x0 + 1);
@@ -75,8 +73,9 @@ static float getPixelValue(const cv::Mat& img, float x, float y) {
         return (1 - dx) * (1 - dy) * v00 + dx * (1 - dy) * v10 +
             (1 - dx) * dy * v01 + dx * dy * v11;
     }
-    else {
-        // 其他类型（例如 CV_32F/CV_32FC1），先读取为 float
+    else 
+    {
+        // 先读取为 float
         cv::Mat tmp;
         if (img.type() == CV_32FC1) {
             // 直接读取
@@ -87,8 +86,9 @@ static float getPixelValue(const cv::Mat& img, float x, float y) {
             return (1 - dx) * (1 - dy) * v00 + dx * (1 - dy) * v10 +
                 (1 - dx) * dy * v01 + dx * dy * v11;
         }
-        else {
-            // 通用路径：转换到 CV_32F（低频率调用时可接受）
+        else 
+        {
+            // 转换 CV_32F
             img.convertTo(tmp, CV_32F);
             float v00 = tmp.at<float>(y0, x0);
             float v10 = tmp.at<float>(y0, x0 + 1);
@@ -100,7 +100,7 @@ static float getPixelValue(const cv::Mat& img, float x, float y) {
     }
 }
 
-// 计算椭圆上某点的精确法线方向
+// 计算椭圆点的法线方向
 static cv::Point2f getEllipseNormal(const cv::RotatedRect& ellipse, float angle_rad) {
     double a = ellipse.size.width / 2.0;
     double b = ellipse.size.height / 2.0;
@@ -126,7 +126,7 @@ static cv::Point2f getEllipseNormal(const cv::RotatedRect& ellipse, float angle_
     return normal;
 }
 
-// 评估椭圆的得分
+// 评估得分
 static CircleScore evaluateEllipse(
     const cv::Mat& gray,
     const cv::Mat& grad_x,
@@ -168,14 +168,14 @@ static CircleScore evaluateEllipse(
         float mag = sqrt(gx * gx + gy * gy);
         if (mag < 0.001) continue;
 
-        // 获取精确法线方向（指向椭圆外部）
+        // 获取精确法线方向（指向外部）
         cv::Point2f normal = getEllipseNormal(ellipse, angle);
         float n_len = sqrt(normal.x * normal.x + normal.y * normal.y);
         if (n_len < 0.001) continue;
         normal.x /= n_len;
         normal.y /= n_len;
 
-        // 梯度方向（归一化）
+        // 归一化
         float g_norm_x = gx / mag;
         float g_norm_y = gy / mag;
 
@@ -190,7 +190,7 @@ static CircleScore evaluateEllipse(
     if (valid_count > 0) {
         score.edge_strength = total_strength / valid_count;
         score.direction_consistency = total_consistency / valid_count;
-        // 综合评分 = 边缘强度 × 方向一致性（两者越高越可信）
+        // 综合评分 = 边缘强度 × 方向一致性
         score.final_score = score.edge_strength * score.direction_consistency;
     }
     return score;
@@ -202,9 +202,9 @@ static CircleScore evaluateEllipse(
 // 返回单个ROI内所有通过初筛的候选椭圆
 static bool collectCandidatesInROI(const cv::Mat& image, const ROIParams& params,
     std::vector<DetectedFeature>& candidates,
-    const cv::Mat& gray_full,   // 新增：全局灰度图（用于打分）
-    const cv::Mat& grad_x,      // 新增：X方向梯度
-    const cv::Mat& grad_y) {      // 新增：Y方向梯度
+    const cv::Mat& gray_full,   // 全局灰度图（用于打分）
+    const cv::Mat& grad_x,      // X方向梯度
+    const cv::Mat& grad_y) {      // Y方向梯度
     cv::Rect valid_roi = params.roi & cv::Rect(0, 0, image.cols, image.rows);
     if (valid_roi.width <= 0 || valid_roi.height <= 0) return false;
     cv::Mat roi_img = image(valid_roi);
@@ -232,7 +232,7 @@ static bool collectCandidatesInROI(const cv::Mat& image, const ROIParams& params
     cv::findNonZero(edges, edge_points);
     if (edge_points.size() < 10) return false;
 
-    // 但更简单的方式：我们仍然用轮廓法，但需要闭合，所以我们用findContours，并收集所有通过半径筛选的轮廓
+    // 初筛
     std::vector<std::vector<cv::Point>> contours;
     cv::findContours(edges, contours, cv::RETR_LIST, cv::CHAIN_APPROX_SIMPLE);
 
@@ -256,7 +256,7 @@ static bool collectCandidatesInROI(const cv::Mat& image, const ROIParams& params
         if (aspect < params.minAspectRatio || aspect > params.maxAspectRatio)
             continue;
 
-        // ===== 新增：将椭圆偏移到全局坐标，进行打分 =====
+        // 将椭圆偏移到全局坐标，进行打分
         cv::RotatedRect ellipse_global = ellipse;
         ellipse_global.center += cv::Point2f(valid_roi.x, valid_roi.y);
 
@@ -271,7 +271,7 @@ static bool collectCandidatesInROI(const cv::Mat& image, const ROIParams& params
         feat.point = ellipse.center;
         feat.ellipse = ellipse;
         feat.avgRadius = avg_radius;
-        //  新增评分
+        // 新增评分
         feat.score = score;
 
         candidates.push_back(feat);
@@ -280,13 +280,13 @@ static bool collectCandidatesInROI(const cv::Mat& image, const ROIParams& params
 
 
     // 新加
-    // 按综合评分降序排序（分数最高的排在前面）
+    // 按综合评分降序排序
     std::sort(candidates.begin(), candidates.end(),
         [](const DetectedFeature& a, const DetectedFeature& b) {
             return a.score.final_score > b.score.final_score;
         });
 
-    // 可选：打印每个候选的分数（调试用）
+    // 打印每个候选的分数（调试用）
     for (size_t i = 0; i < candidates.size() && i < 5; ++i) {
         std::cout << "[Cand " << i << "] 半径=" << candidates[i].avgRadius
             << ", 分数=" << candidates[i].score.final_score
@@ -309,7 +309,7 @@ bool RealImageFeatureDetector::detectWithEllipse(const cv::Mat& image, std::vect
     features.reserve(roiParams_.size());
 
 
-    // ===== 新增：预计算灰度图和梯度图（全图一次，避免重复计算） =====
+    // 预计算灰度图和梯度图（全图一次，避免重复计算）
     cv::Mat gray_full;
     if (image.channels() == 3) {
         cv::cvtColor(image, gray_full, cv::COLOR_BGR2GRAY);
@@ -335,17 +335,17 @@ bool RealImageFeatureDetector::detectWithEllipse(const cv::Mat& image, std::vect
             return false;
         }
 
-        // ===== 改动2：候选已按分数排序，直接取第一个 =====
+        // 候选已按分数排序
         const DetectedFeature& best = candidates[0];
 
-        // ===== 改动3：动态阈值判断 =====
+        // 动态阈值判断
         if (best.score.final_score < 10.0) {
-            std::cout << "[ROI " << i << "] 最高分仅 " << best.score.final_score
-                << "，可信度不足，拒绝" << std::endl;
+            std::cout << "[ROI " << i << "] 最高分：" << best.score.final_score
+                << "，可信度不足" << std::endl;
             return false;
         }
 
-        std::cout << "[ROI " << i << "] ✅ 选中: 半径=" << best.avgRadius
+        std::cout << "[ROI " << i << "] 选中: 半径=" << best.avgRadius
             << ", 分数=" << best.score.final_score
             << " (强度=" << best.score.edge_strength
             << ", 方向=" << best.score.direction_consistency << ")"

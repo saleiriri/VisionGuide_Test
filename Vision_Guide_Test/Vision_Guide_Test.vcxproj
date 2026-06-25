@@ -152,11 +152,13 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="MultiFramePoseAverager.cpp" />
+    <ClCompile Include="PoseSolver.cpp" />
     <ClCompile Include="RealImageFeatureDetector.cpp" />
     <ClCompile Include="Vision_Guide_Test.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MultiFramePoseAverager.h" />
+    <ClInclude Include="PoseSolver.h" />
     <ClInclude Include="RealImageFeatureDetector.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

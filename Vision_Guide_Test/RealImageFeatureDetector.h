@@ -24,7 +24,6 @@ struct DetectedFeature {
     cv::RotatedRect ellipse;
     CircleScore score;        // 评分信息
 
-
     // 调试用
     double circularity;         // 轮廓圆度（4πA/P²）
     double avgRadius;           // 平均半径 (长短轴平均)
@@ -33,22 +32,22 @@ struct DetectedFeature {
 class RealImageFeatureDetector {
 public:
 
-    // 新增函数声明：同时返回点和椭圆
+    // 同时返回点和椭圆
     bool detectWithEllipse(const cv::Mat& image, std::vector<DetectedFeature>& features);
 
     RealImageFeatureDetector() = default;    
 
-    // 设置所有ROI参数（数量即为期望提取的点数）
+    // 设置所有ROI参数
     void setROIParams(const std::vector<ROIParams>& params) { roiParams_ = params; }
 
-    // 调试函数：返回每个ROI中所有候选椭圆（不保证最佳，仅用于可视化）
+    // 返回每个ROI中所有候选椭圆（用于调试可视化）
     bool detectAllCandidates(const cv::Mat& image,
         std::vector<std::vector<DetectedFeature>>& allCandidatesPerROI);
 
 private:
     std::vector<ROIParams> roiParams_;
 
-    // 计算轮廓圆度
+    // 计算轮廓圆度（）
     double calculateCircularity(const std::vector<cv::Point>& contour);
 
     // 在单个ROI内检测，返回最佳点及其分数

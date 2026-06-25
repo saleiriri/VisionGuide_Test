@@ -1,206 +1,13 @@
-﻿/*#include <opencv2/opencv.hpp>
-#include <opencv2/core/version.hpp>
-#include <iostream>
-#include <vector>
-#include <random>
-#include "MultiFramePoseAverager.h"  
-
-// 打印矩阵
-void printMat(const std::string& name, const cv::Mat& mat) {
-    std::cout << name << ":\n" << mat << std::endl;
-}
-
-// 误差计算
-double rotationVectorDiffInDegrees(const cv::Mat& rvec1, const cv::Mat& rvec2) {
-    cv::Mat R1, R2, R_diff;
-    cv::Rodrigues(rvec1, R1);
-    cv::Rodrigues(rvec2, R2);
-    R_diff = R1.t() * R2;
-    double trace = cv::trace(R_diff)[0];
-    double angle_rad = acos(std::min(1.0, std::max(-1.0, (trace - 1.0) / 2.0)));
-    return angle_rad * 180.0 / CV_PI;
-}
-
-// 添加噪声
-void addGaussianNoise(std::vector<cv::Point2f>& points, double sigma_pixel) {
-    if (sigma_pixel <= 0.0) return; 
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::normal_distribution<> noise(0.0, sigma_pixel);
-    for (auto& pt : points) {
-        pt.x += static_cast<float>(noise(gen));
-        pt.y += static_cast<float>(noise(gen));
-    }
-}
-
-// 核心解算
-bool solveWorkpiecePose(
-    const std::vector<cv::Point3f>& object_pts,
-    const std::vector<cv::Point2f>& image_pts,
-    const cv::Mat& K,
-    const cv::Mat& D,
-    cv::Mat& rvec,
-    cv::Mat& tvec,
-    double& reproj_error,
-    double ransac_threshold = 3.0
-) {
-    if (object_pts.size() < 3 || image_pts.size() < 3) return false;
-
-    std::vector<int> inliers;
-    bool success = cv::solvePnPRansac(
-        object_pts, image_pts, K, D,
-        rvec, tvec, false, 100, ransac_threshold, 0.99, inliers, cv::SOLVEPNP_EPNP
-    );
-    if (!success || inliers.size() < 3) return false;
-
-    // 提取点
-    std::vector<cv::Point3f> inlier_obj;
-    std::vector<cv::Point2f> inlier_img;
-    for (int idx : inliers) {
-        inlier_obj.push_back(object_pts[idx]);
-        inlier_img.push_back(image_pts[idx]);
-    }
-
-    // 精修
-    cv::TermCriteria criteria(cv::TermCriteria::EPS + cv::TermCriteria::COUNT, 30, 0.001);
-    success = cv::solvePnP(
-        inlier_obj, inlier_img, K, D,
-        rvec, tvec, true, cv::SOLVEPNP_ITERATIVE
-    );
-    if (!success) return false;
-
-    // 重投影误差
-    std::vector<cv::Point2f> projected;
-    cv::projectPoints(object_pts, rvec, tvec, K, D, projected);
-    double sum_err = 0.0;
-    for (size_t i = 0; i < image_pts.size(); ++i) {
-        sum_err += cv::norm(image_pts[i] - projected[i]);
-    }
-    reproj_error = sum_err / image_pts.size();
-
-    return true;
-}
-
-int main() {
-    std::cout << "\n========== Phase 4: Multi-Frame Averaging Test ==========\n" << std::endl;
-
-    // 相机内参 
-    cv::Mat camera_matrix = (cv::Mat_<double>(3, 3) << 2000.0, 0.0, 640.0, 0.0, 2000.0, 512.0, 0.0, 0.0, 1.0);
-    cv::Mat dist_coeffs = (cv::Mat_<double>(1, 5) << 0.0, 0.0, 0.0, 0.0, 0.0);
-
-    // 工件特征点
-    std::vector<cv::Point3f> object_points = {
-        cv::Point3f(-200.0f, -150.0f, 0.0f),
-        cv::Point3f(200.0f, -150.0f, 5.0f),
-        cv::Point3f(250.0f,  0.0f,   2.0f),
-        cv::Point3f(200.0f,  150.0f, -2.0f),
-        cv::Point3f(-200.0f,  150.0f, 3.0f),
-        cv::Point3f(-250.0f,  0.0f,   0.0f),
-        cv::Point3f(0.0f,   -100.0f, 8.0f),
-        cv::Point3f(0.0f,   100.0f,  6.0f)
-    };
-    size_t total_points = object_points.size();
-
-    // 真值位姿
-    double base_working_distance = 1500.0;
-    double delta_x_true = 5.0;
-    double delta_z_deg_true = 2.0;
-    cv::Mat rvec_true = (cv::Mat_<double>(3, 1) << 0.0, 0.0, delta_z_deg_true * CV_PI / 180.0);
-    cv::Mat tvec_true = (cv::Mat_<double>(3, 1) << delta_x_true, 0.0, base_working_distance);
-
-    std::cout << "[Ground Truth] Translation X: " << delta_x_true << " mm, Rotation Z: " << delta_z_deg_true << " deg" << std::endl;
-
-    // 多帧平均器
-    const int FRAMES_TO_AVG = 8;
-    MultiFramePoseAverager averager(FRAMES_TO_AVG);
-
-    // 循环模拟连续拍摄 
-    // 为了测试，我们连续生成 FRAMES_TO_AVG 帧带噪声的图像
-    for (int frame = 0; frame < FRAMES_TO_AVG; ++frame) {
-        std::cout << "\n--- Frame " << frame + 1 << " ---" << std::endl;
-
-        // 投影生成理想像素点
-        std::vector<cv::Point2f> image_points_clean;
-        cv::projectPoints(object_points, rvec_true, tvec_true, camera_matrix, dist_coeffs, image_points_clean);
-
-        // 施加干扰（仅加高斯噪声，模拟不同帧的随机抖动）
-        double noise_sigma = 0.5;  // 0.5像素噪声
-        std::vector<cv::Point2f> image_points_corrupted = image_points_clean;
-        addGaussianNoise(image_points_corrupted, noise_sigma);
-
-        // 也可验证误匹配与遮挡
-
-        // 单帧解算
-        cv::Mat rvec, tvec;
-        double reproj_err;
-        bool success = solveWorkpiecePose(
-            object_points, image_points_corrupted,
-            camera_matrix, dist_coeffs,
-            rvec, tvec, reproj_err
-        );
-
-        if (!success) {
-            std::cout << "[Frame] Solve failed, skipping." << std::endl;
-            continue;
-        }
-
-        // 平均
-        bool is_ready = averager.addPose(rvec, tvec, reproj_err);
-
-        // 输出融合结果并与真值对比
-        if (is_ready) {
-            cv::Mat final_rvec = averager.getFinalRvec();
-            cv::Mat final_tvec = averager.getFinalTvec();
-
-            // 计算融合结果的误差
-            double trans_err = cv::norm(final_tvec - tvec_true);
-            double rot_err = rotationVectorDiffInDegrees(final_rvec, rvec_true);
-
-            std::cout << "\n========== Final Fused Pose vs Ground Truth ==========" << std::endl;
-            std::cout << "[Fused] Translation (X, Y, Z): "
-                << final_tvec.at<double>(0) << ", "
-                << final_tvec.at<double>(1) << ", "
-                << final_tvec.at<double>(2) << std::endl;
-            std::cout << "[Fused] Translation Error: " << trans_err << " mm" << std::endl;
-            std::cout << "[Fused] Rotation Error: " << rot_err << " deg" << std::endl;
-
-            // 显示结果
-            cv::Mat vis_img(900, 1200, CV_8UC3, cv::Scalar(50, 50, 50));
-            // 最后一帧（黄）
-            for (const auto& pt : image_points_corrupted) {
-                cv::circle(vis_img, cv::Point((int)pt.x, (int)pt.y), 8, cv::Scalar(0, 255, 255), -1);
-            }
-            // 最终融合位姿（青）
-            std::vector<cv::Point2f> reprojected;
-            cv::projectPoints(object_points, final_rvec, final_tvec, camera_matrix, dist_coeffs, reprojected);
-            for (const auto& pt : reprojected) {
-                cv::circle(vis_img, cv::Point((int)pt.x, (int)pt.y), 4, cv::Scalar(255, 255, 0), -1);
-            }
-            cv::putText(vis_img, "Yellow: Last Frame Input | Cyan: Fused Pose Reprojection",
-                cv::Point(50, 50), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(255, 255, 255), 2);
-            cv::putText(vis_img, "Phase 4: Multi-Frame Averaging (8 frames)",
-                cv::Point(350, 850), cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(200, 200, 200), 1);
-            cv::imshow("Phase 4 - Multi-Frame Averaging", vis_img);
-            cv::waitKey(0);
-            cv::destroyAllWindows();
-        }
-    }
-
-    std::cout << "\n>>> Phase 4 Completed! <<<" << std::endl;
-    return 0;
-}*/
-
-
-
-// 测试代码   C:\\Users\\ZhuanZ（无密码）\\Desktop\\visionguide\\test.png
+﻿// 测试图片   C:\\Users\\ZhuanZ（无密码）\\Desktop\\visionguide\\test.png
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <vector>
 #include "RealImageFeatureDetector.h"
+#include "PoseSolver.h" 
 
 
 double g_scale = 1.0;              // 缩放倍数
-// ===== 全局变量（用于平移+缩放） =====
+// 用于平移、缩放的变量
 cv::Mat g_original_image;          // 原始图像（带检测结果）
 cv::Mat g_display_image;           // 当前显示的图像
 cv::Mat g_transform;               // 2x3 仿射变换矩阵（控制平移和缩放）
@@ -258,7 +65,7 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
         start_transform = g_transform.clone();
     }
     else if (event == cv::EVENT_MOUSEMOVE && (flags & cv::EVENT_FLAG_LBUTTON)) {
-        // -------- 拖拽平移 --------
+        // 拖拽平移
         double dx = x - drag_start.x;
         double dy = y - drag_start.y;
         // 在起始变换的基础上增加平移量
@@ -293,7 +100,7 @@ int main() {
     std::cout << "\n========== PHASE 5: REAL IMAGE WITH GRID, ZOOM, PAN & ROI ==========\n" << std::endl;
 
     // 加载图像
-    std::string image_path = "C:\\Users\\ZhuanZ（无密码）\\Desktop\\visionguide\\test.png";  // 请修改为你的图片路径
+    std::string image_path = "C:\\Users\\ZhuanZ（无密码）\\Desktop\\visionguide\\test.png";  // 图片路径(调试暂用)
     cv::Mat raw_image = cv::imread(image_path);
     if (raw_image.empty()) {
         std::cerr << "Failed to load image: " << image_path << std::endl;
@@ -305,7 +112,6 @@ int main() {
     std::vector<ROIParams> roiParams(6);
     // 单独调整每个ROI
     roiParams[0].roi = cv::Rect(800, 1100, 300, 250);
-    // roiParams[0].minRadius = 10.0;                    //可设置其他参数，此处暂时不设
     roiParams[0].minRadius = 50;
     roiParams[0].maxRadius = 60;
 
@@ -364,18 +170,18 @@ int main() {
     std::vector<DetectedFeature> features;
     bool success = detector.detectWithEllipse(raw_image, features);
 
-    // 新增调试：获取所有候选（仅当需要时，不影响原有输出）
+    // 新增调试：获取所有候选（不影响原有输出）
     std::vector<std::vector<DetectedFeature>> allCandidates;
     detector.detectAllCandidates(raw_image, allCandidates);
 
-    // 在绘制循环中，先画所有候选（用黄色或橙色），再画最佳（红色）
+    // 在绘制循环中，先画所有候选（黄色），再画最佳（红色）
     
     for (size_t i = 0; i < allCandidates.size(); ++i) {
         for (const auto& cand : allCandidates[i]) {
-            // 画候选椭圆（浅色，比如黄色）
+            // 画候选椭圆
             cv::ellipse(result_img, cand.ellipse, cv::Scalar(0, 255, 255), 1); // 黄色细线
 
-            // ===== 新增：显示长轴、短轴、平均半径、圆度 =====
+            // 显示长轴、短轴、平均半径
             std::string info = cv::format(
                 "R=%.1f  L=%.1f  S=%.1f",
                 cand.avgRadius,
@@ -392,10 +198,6 @@ int main() {
         }
     }
 
-
-
-
-
     g_detected_points.clear();
     for (const auto& feat : features) {
         g_detected_points.push_back(feat.point);
@@ -405,16 +207,8 @@ int main() {
     if (success) {
         for (size_t i = 0; i < features.size(); ++i) {
             const auto& feat = features[i];
-            // 绘制红色拟合椭圆（新增）
+            // 绘制红色拟合椭圆
             cv::ellipse(result_img, feat.ellipse, cv::Scalar(0, 0, 255), 2);
-            
-            /*
-            std::string axis_info = "W:" + std::to_string((int)feat.ellipse.size.width) +
-                " H:" + std::to_string((int)feat.ellipse.size.height);
-            cv::putText(result_img, axis_info,
-                cv::Point((int)feat.point.x + 20, (int)feat.point.y - 20),
-                cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 0), 1);
-            */
 
             // 绘制中心点（绿色大圆）
             cv::circle(result_img, cv::Point((int)feat.point.x, (int)feat.point.y), 12, cv::Scalar(0, 255, 0), 3);
@@ -431,6 +225,69 @@ int main() {
     else {
         std::cout << "\nDetection FAILED. Check ROI parameters or image." << std::endl;
     }
+
+    // 2026.6.25
+    // 提取 2D 点
+    std::vector<cv::Point2f> image_points;
+    for (const auto& feat : features) {
+        image_points.push_back(feat.point);
+        std::cout << "提取到点: (" << feat.point.x << ", " << feat.point.y << ")" << std::endl;
+    }
+
+    // PnP 解算
+    // 定义 3D 点库（CAD坐标）
+    std::vector<cv::Point3f> object_points = {
+        cv::Point3f(2262.615f, -608.766f, 481.019f),
+        cv::Point3f(2188.383f, -608.058f, 511.965f),
+        cv::Point3f(2148.132f,  -609.187f,   588.711f),
+        cv::Point3f(2132.353f,  -612.087f, 646.559f),
+        cv::Point3f(2198.0f,  -591.0f, 755.0f),
+        cv::Point3f(2193.449f,  -606.384f,  600.541f)
+    };
+
+    // 配置 PoseSolver
+    PoseSolverConfig config;
+    config.ransac_threshold = 3.0;
+    config.match_tolerance_ratio = 0.04;
+
+    PoseSolver solver(config);
+
+    // 当前图片相机参数（调试用）
+    cv::Mat camera_matrix = (cv::Mat_<double>(3, 3) <<
+        8730.097601293379, 0.0, 2032.5411458089795, 0.0, 8729.93196788731, 1590.2239152932418, 0.0, 0.0, 1.0);
+    cv::Mat dist_coeffs = (cv::Mat_<double>(1, 5) << -0.059419770213628355, 0.6242804643577333, 0.0023748112509786178, 0.0005345488879690347, -1.5262933488921209);
+
+
+    solver.setCameraParams(camera_matrix, dist_coeffs);
+    solver.setObjectPoints(object_points);
+
+    // 执行解算
+    PoseResult result = solver.solveDebug(image_points);
+
+    // pnp结果可视化
+
+    // 绘制检测到的点（绿）
+    for (const auto& pt : image_points) {
+        cv::circle(result_img, cv::Point((int)pt.x, (int)pt.y), 8, cv::Scalar(0, 255, 0), -1);
+    }
+
+    // 解算成功时绘制重投影点（红色）
+    if (result.success) {
+        std::vector<cv::Point2f> reprojected;
+        cv::projectPoints(object_points, result.rvec, result.tvec,
+            camera_matrix, dist_coeffs, reprojected);
+        for (const auto& pt : reprojected) {
+            cv::circle(result_img, cv::Point((int)pt.x, (int)pt.y), 5, cv::Scalar(0, 0, 255), 2);
+        }
+
+        // 在图像上打印位姿信息
+        std::string info = "t: (" + std::to_string(result.tvec.at<double>(0)) + ", " +
+            std::to_string(result.tvec.at<double>(1)) + ", " +
+            std::to_string(result.tvec.at<double>(2)) + ") mm";
+        cv::putText(result_img, info, cv::Point(30, 80),
+            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
+    }
+
 
     // 设置全局图像并启动窗口
     g_original_image = result_img;
@@ -461,14 +318,6 @@ int main() {
     // g_center = cv::Point2d(g_original_image.cols / 2.0, g_original_image.rows / 2.0);
     g_scale = 1.0;
     g_need_update = true;
-
-    // 初始化显示图像大小
-    /*g_display_image = cv::Mat(800, 1200, g_original_image.type());
-
-    cv::namedWindow("Feature Extraction + Grid + Zoom + Pan", cv::WINDOW_NORMAL);
-    cv::resizeWindow("Feature Extraction + Grid + Zoom + Pan", 1200, 800);
-    cv::setMouseCallback("Feature Extraction + Grid + Zoom + Pan", onMouse);
-    */
     // 主循环
     while (true) {
         if (g_need_update) {
