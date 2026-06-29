@@ -1,17 +1,11 @@
 ﻿#pragma once
 #include <opencv2/opencv.hpp>
 #include <vector>
+#include "FeatureDetectorBase.h"
 
-// ROI参数（已修改为每个ROI独立配置）
-struct ROIParams {
-    cv::Rect roi;                   // 感兴趣区域（单位：像素）
-    double minRadius = 10.0;        // 最小半径
-    double maxRadius = 180.0;        // 最大半径
-    double minCircularity = 0.3;    // 最小圆度
-    double minAspectRatio = 0.3;    // 长短轴比下限
-    double maxAspectRatio = 4.0;    // 长短轴比上限
-};
 
+/*
+// 以下两个结构体已转移至FeatureDetectorBase.h中
 struct CircleScore {
     double edge_strength = 0.0;       // 边缘强度（灰度梯度幅值）
     double direction_consistency = 0.0; // 方向一致性
@@ -27,7 +21,7 @@ struct DetectedFeature {
     // 调试用
     double circularity;         // 轮廓圆度（4πA/P²）
     double avgRadius;           // 平均半径 (长短轴平均)
-};
+};*/
 
 class RealImageFeatureDetector {
 public:

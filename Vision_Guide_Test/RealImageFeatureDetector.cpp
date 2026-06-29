@@ -325,7 +325,7 @@ bool RealImageFeatureDetector::detectWithEllipse(const cv::Mat& image, std::vect
 
 
     for (size_t i = 0; i < roiParams_.size(); ++i) {
-        // ===== 改动1：调用 collectCandidatesInROI 获取所有候选 =====
+        // 调用 collectCandidatesInROI 获取所有候选
         std::vector<DetectedFeature> candidates;
         bool ok = collectCandidatesInROI(image, roiParams_[i], candidates,
             gray_full, grad_x, grad_y);

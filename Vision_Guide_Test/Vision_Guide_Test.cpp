@@ -2,8 +2,12 @@
 #include <opencv2/opencv.hpp>
 #include <iostream>
 #include <vector>
+#include "FeatureDetectorBase.h"
 #include "RealImageFeatureDetector.h"
 #include "PoseSolver.h" 
+#include "TraditionalDetector.h"
+
+// #include "YoloDetector.h"   // 当需要使用深度学习模型时需取消注释
 
 
 double g_scale = 1.0;              // 缩放倍数
@@ -25,11 +29,11 @@ std::vector<cv::Point2f> g_detected_points;
 bool g_detection_success = false;
 
 void onMouse(int event, int x, int y, int flags, void* userdata) {
-    static cv::Point2d drag_start;  // 拖拽起始点（屏幕坐标）
+    static cv::Point2d drag_start;  // 拖拽起始点
     static cv::Mat start_transform; // 拖拽开始时的变换矩阵
 
     if (event == cv::EVENT_MOUSEWHEEL) {
-        // -------- 滚轮缩放（以鼠标位置为中心） --------
+        // 以鼠标位置为中心滚轮缩放
         int delta = cv::getMouseWheelDelta(flags);
         double scale_factor = (delta > 0) ? 1.1 : 0.9;
         double new_scale = g_transform.at<double>(0, 0) * scale_factor;
@@ -108,7 +112,7 @@ int main() {
     }
     std::cout << "Image size: " << raw_image.cols << " x " << raw_image.rows << std::endl;
 
-    // 配置6个ROI
+    // 配置6个ROI (需根据实际情况设置，可以修改位置、数量)
     std::vector<ROIParams> roiParams(6);
     // 单独调整每个ROI
     roiParams[0].roi = cv::Rect(800, 1100, 300, 250);
@@ -161,21 +165,27 @@ int main() {
     }
 
     // 执行检测
-    RealImageFeatureDetector detector;
+    //RealImageFeatureDetector detector;
+    //detector.setROIParams(roiParams);      // 设置ROI参数
+
+    // 添加传统及深度模型选择判断
+    TraditionalDetector detector;     // 改用包装类
+
+    // 当使用深度学习模型时，将上一行注释，并将下面三行解开注释即可
+    // YoloConfig config;
+    // config.model_path = "D:/models/hole_detector.onnx";
+    // YoloDetector detector(config);
+    
     detector.setROIParams(roiParams);
 
-    // std::vector<cv::Point2f> points;
-    // bool success = detector.detect(raw_image, points);
-
     std::vector<DetectedFeature> features;
-    bool success = detector.detectWithEllipse(raw_image, features);
+    // bool success = detector.detectWithEllipse(raw_image, features);
+    bool success = detector.detect(raw_image, features);    // 接口统一为detect
 
-    // 新增调试：获取所有候选（不影响原有输出）
+    // 调试，查看所有输出
     std::vector<std::vector<DetectedFeature>> allCandidates;
     detector.detectAllCandidates(raw_image, allCandidates);
-
     // 在绘制循环中，先画所有候选（黄色），再画最佳（红色）
-    
     for (size_t i = 0; i < allCandidates.size(); ++i) {
         for (const auto& cand : allCandidates[i]) {
             // 画候选椭圆
@@ -191,9 +201,7 @@ int main() {
             cv::putText(result_img, info,
                 cv::Point((int)cand.point.x - 60, (int)cand.point.y - 25),
                 cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(255, 255, 0), 1);
-            // ================================================
-            // 
-            // 画候选中心小点
+            // 画候选中心
             cv::circle(result_img, cv::Point((int)cand.point.x, (int)cand.point.y), 3, cv::Scalar(0, 255, 255), -1);
         }
     }
@@ -252,7 +260,7 @@ int main() {
 
     PoseSolver solver(config);
 
-    // 当前图片相机参数（调试用）
+    // 当前图片相机参数（调试用，需根据实际使用的相机内参做出对应修改）
     cv::Mat camera_matrix = (cv::Mat_<double>(3, 3) <<
         8730.097601293379, 0.0, 2032.5411458089795, 0.0, 8729.93196788731, 1590.2239152932418, 0.0, 0.0, 1.0);
     cv::Mat dist_coeffs = (cv::Mat_<double>(1, 5) << -0.059419770213628355, 0.6242804643577333, 0.0023748112509786178, 0.0005345488879690347, -1.5262933488921209);
@@ -265,7 +273,6 @@ int main() {
     PoseResult result = solver.solveDebug(image_points);
 
     // pnp结果可视化
-
     // 绘制检测到的点（绿）
     for (const auto& pt : image_points) {
         cv::circle(result_img, cv::Point((int)pt.x, (int)pt.y), 8, cv::Scalar(0, 255, 0), -1);

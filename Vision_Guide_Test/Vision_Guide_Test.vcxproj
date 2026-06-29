@@ -155,11 +155,16 @@
     <ClCompile Include="PoseSolver.cpp" />
     <ClCompile Include="RealImageFeatureDetector.cpp" />
     <ClCompile Include="Vision_Guide_Test.cpp" />
+    <ClCompile Include="TraditionalDetector.cpp" />
+    <ClCompile Include="YoloDectector.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="FeatureDetectorBase.h" />
     <ClInclude Include="MultiFramePoseAverager.h" />
     <ClInclude Include="PoseSolver.h" />
     <ClInclude Include="RealImageFeatureDetector.h" />
+    <ClInclude Include="TraditionalDetector.h" />
+    <ClInclude Include="YoloDetector.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="yolo">
+      <UniqueIdentifier>{d0cea581-49a3-4d0d-8b60-94b5a2bca9d2}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Vision_Guide_Test.cpp">
@@ -27,6 +30,12 @@
     <ClCompile Include="PoseSolver.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
+    <ClCompile Include="TraditionalDetector.cpp">
+      <Filter>yolo</Filter>
+    </ClCompile>
+    <ClCompile Include="YoloDectector.cpp">
+      <Filter>yolo</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MultiFramePoseAverager.h">
@@ -37,6 +46,15 @@
     </ClInclude>
     <ClInclude Include="PoseSolver.h">
       <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="FeatureDetectorBase.h">
+      <Filter>yolo</Filter>
+    </ClInclude>
+    <ClInclude Include="TraditionalDetector.h">
+      <Filter>yolo</Filter>
+    </ClInclude>
+    <ClInclude Include="YoloDetector.h">
+      <Filter>yolo</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
