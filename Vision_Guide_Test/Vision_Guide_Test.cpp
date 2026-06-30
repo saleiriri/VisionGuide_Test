@@ -6,6 +6,7 @@
 #include "RealImageFeatureDetector.h"
 #include "PoseSolver.h" 
 #include "TraditionalDetector.h"
+#include "YoloDetector.h"
 
 // #include "YoloDetector.h"   // 当需要使用深度学习模型时需取消注释
 
@@ -29,6 +30,10 @@ std::vector<cv::Point2f> g_detected_points;
 bool g_detection_success = false;
 
 void onMouse(int event, int x, int y, int flags, void* userdata) {
+    
+    if (g_transform.empty() || g_transform.rows != 2 || g_transform.cols != 3 || g_transform.type() != CV_64F) {
+    g_transform = cv::Mat::eye(2, 3, CV_64F);
+    }
     static cv::Point2d drag_start;  // 拖拽起始点
     static cv::Mat start_transform; // 拖拽开始时的变换矩阵
 
@@ -139,6 +144,31 @@ int main() {
     roiParams[5].minRadius = 45;
     roiParams[5].maxRadius = 55;
 
+    // 是否使用yolo找点
+    bool use_yolo = false;  // true=使用YOLO自动找ROI，false=使用手动ROI
+
+    if (use_yolo) {
+        YoloConfig config;
+        config.model_path = "hole_detector.onnx";
+        config.confidence_threshold = 0.5;
+        config.nms_threshold = 0.4;
+
+        YoloDetector yolo_detector(config);
+        std::vector<cv::Rect> yolo_rois;
+
+        if (yolo_detector.detectROIs(raw_image, yolo_rois)) {
+            size_t count = std::min(roiParams.size(), yolo_rois.size());
+            for (size_t i = 0; i < count; ++i) {
+                roiParams[i].roi = yolo_rois[i];
+                // minRadius、maxRadius 等参数保持不变
+            }
+            std::cout << "[YOLO] 已更新 " << count << " 个ROI" << std::endl;
+        }
+        else {
+            std::cout << "[YOLO] 检测失败，使用手动ROI" << std::endl;
+        }
+    }
+
 
     // 暂用,后面要逐个设置
     for (auto& p : roiParams) {
@@ -168,7 +198,7 @@ int main() {
     //RealImageFeatureDetector detector;
     //detector.setROIParams(roiParams);      // 设置ROI参数
 
-    // 添加传统及深度模型选择判断
+    // 添加传统及深度学习模型选择判断
     TraditionalDetector detector;     // 改用包装类
 
     // 当使用深度学习模型时，将上一行注释，并将下面三行解开注释即可
@@ -191,7 +221,7 @@ int main() {
             // 画候选椭圆
             cv::ellipse(result_img, cand.ellipse, cv::Scalar(0, 255, 255), 1); // 黄色细线
 
-            // 显示长轴、短轴、平均半径
+            // 显示平均半径、长轴、短轴
             std::string info = cv::format(
                 "R=%.1f  L=%.1f  S=%.1f",
                 cand.avgRadius,
@@ -286,13 +316,6 @@ int main() {
         for (const auto& pt : reprojected) {
             cv::circle(result_img, cv::Point((int)pt.x, (int)pt.y), 5, cv::Scalar(0, 0, 255), 2);
         }
-
-        // 在图像上打印位姿信息
-        std::string info = "t: (" + std::to_string(result.tvec.at<double>(0)) + ", " +
-            std::to_string(result.tvec.at<double>(1)) + ", " +
-            std::to_string(result.tvec.at<double>(2)) + ") mm";
-        cv::putText(result_img, info, cv::Point(30, 80),
-            cv::FONT_HERSHEY_SIMPLEX, 0.7, cv::Scalar(0, 255, 255), 2);
     }
 
 
