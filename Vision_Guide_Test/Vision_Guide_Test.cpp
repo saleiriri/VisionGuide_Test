@@ -109,7 +109,7 @@ int main() {
     std::cout << "\n========== PHASE 5: REAL IMAGE WITH GRID, ZOOM, PAN & ROI ==========\n" << std::endl;
 
     // 加载图像
-    std::string image_path = "C:\\Users\\ZhuanZ（无密码）\\Desktop\\visionguide\\test.png";  // 图片路径(调试暂用)
+    std::string image_path = "image\\test.png";  // 图片路径(调试暂用)
     cv::Mat raw_image = cv::imread(image_path);
     if (raw_image.empty()) {
         std::cerr << "Failed to load image: " << image_path << std::endl;

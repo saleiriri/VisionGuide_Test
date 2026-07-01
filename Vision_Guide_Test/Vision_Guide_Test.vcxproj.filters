@@ -16,6 +16,9 @@
     <Filter Include="yolo">
       <UniqueIdentifier>{d0cea581-49a3-4d0d-8b60-94b5a2bca9d2}</UniqueIdentifier>
     </Filter>
+    <Filter Include="image">
+      <UniqueIdentifier>{3cf27419-b7fa-4d63-a2e7-317d3b0f7705}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Vision_Guide_Test.cpp">
@@ -56,5 +59,10 @@
     <ClInclude Include="YoloDetector.h">
       <Filter>yolo</Filter>
     </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="image\test.png">
+      <Filter>image</Filter>
+    </Image>
   </ItemGroup>
 </Project>
