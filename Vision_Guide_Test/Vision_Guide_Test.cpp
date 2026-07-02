@@ -7,6 +7,7 @@
 #include "PoseSolver.h" 
 #include "TraditionalDetector.h"
 #include "YoloDetector.h"
+#include "PoseIO.h"
 
 // #include "YoloDetector.h"   // 当需要使用深度学习模型时需取消注释
 
@@ -302,7 +303,27 @@ int main() {
     // 执行解算
     PoseResult result = solver.solveDebug(image_points);
 
-    // pnp结果可视化
+    // 将结果保存为 JSON 文件
+    // 标准位姿，应使用三坐标标准工件，保存结果为standard_pose.json，内容包括旋转向量、平移向量、旋转矩阵
+    if (result.success) {
+        bool save_as_standard = true;  // 设置为 true 时保存
+
+        if (save_as_standard) {
+            PoseIO::savePose(
+                "standard_pose.json",
+                result.rvec,
+                result.tvec,
+                "standard_pose",
+                result.reprojection_error
+            );
+            std::cout << "标准位姿已保存到 standard_pose.json" << std::endl;
+        }
+    }
+    else {
+        std::cout << "PnP解算失败，无法保存标准位姿" << std::endl;
+    }
+
+    // pnp结果可视化（调试）
     // 绘制检测到的点（绿）
     for (const auto& pt : image_points) {
         cv::circle(result_img, cv::Point((int)pt.x, (int)pt.y), 8, cv::Scalar(0, 255, 0), -1);

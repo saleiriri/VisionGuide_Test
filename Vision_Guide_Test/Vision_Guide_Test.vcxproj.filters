@@ -59,6 +59,9 @@
     <ClInclude Include="YoloDetector.h">
       <Filter>yolo</Filter>
     </ClInclude>
+    <ClInclude Include="PoseIO.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Image Include="image\test.png">
