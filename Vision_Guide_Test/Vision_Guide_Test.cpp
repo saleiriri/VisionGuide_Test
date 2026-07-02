@@ -344,7 +344,7 @@ int main() {
     g_original_image = result_img;
 
     // 调试
-    // 初始化仿射变换矩阵（初始为全图显示，居中）
+    // 初始化仿射变换矩阵
     g_transform = cv::Mat::eye(2, 3, CV_64F);
     // 计算初始缩放，使图像完整显示在窗口中
     double scale_x = (double)g_window_size.width / g_original_image.cols;

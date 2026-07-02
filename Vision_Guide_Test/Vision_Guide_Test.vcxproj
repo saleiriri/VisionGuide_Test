@@ -71,11 +71,11 @@
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
-    <IncludePath>D:\json\include;$(OPENCV_DIR)\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(NLOHMANN_JSON_DIR);$(IncludePath);$(OPENCV_DIR)\include</IncludePath>
     <LibraryPath>$(OPENCV_DIR)\x64\vc16\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
-    <IncludePath>D:\json\include;$(OPENCV_DIR)\include;$(IncludePath)</IncludePath>
+    <IncludePath>$(NLOHMANN_JSON_DIR);$(IncludePath);$(OPENCV_DIR)\include</IncludePath>
     <LibraryPath>$(OPENCV_DIR)\x64\vc16\lib;$(LibraryPath)</LibraryPath>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg">
