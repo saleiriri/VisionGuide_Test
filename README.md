@@ -7,4 +7,4 @@
 1. **ROI 自动提取**：可使用手动设置框选ROI以及 YOLO 深度学习模型自动检测目标区域，替代手动框选 ROI；
 2. **特征点检测**：在 ROI 区域内，使用传统图像处理方法提取关键特征点；
 3. **3D 位姿匹配**：基于特征点完成三维空间中的目标定位与匹配。
-**第三方库包括OpenCV、nlohmann/json（通过环境变量 `OPENCV_DIR` 、`NLOHMANN_JSON_DIR` 引用）**
+> 第三方库包括OpenCV、nlohmann/json（通过环境变量 `OPENCV_DIR` 、`NLOHMANN_JSON_DIR` 引用）
