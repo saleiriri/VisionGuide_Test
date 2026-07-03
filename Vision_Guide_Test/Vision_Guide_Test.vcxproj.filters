@@ -19,6 +19,9 @@
     <Filter Include="image">
       <UniqueIdentifier>{3cf27419-b7fa-4d63-a2e7-317d3b0f7705}</UniqueIdentifier>
     </Filter>
+    <Filter Include="snap7">
+      <UniqueIdentifier>{d0180022-026b-40cf-a85f-bfe267316b0c}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Vision_Guide_Test.cpp">
@@ -38,6 +41,9 @@
     </ClCompile>
     <ClCompile Include="YoloDectector.cpp">
       <Filter>yolo</Filter>
+    </ClCompile>
+    <ClCompile Include="snap7\snap7.cpp">
+      <Filter>snap7</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -62,10 +68,23 @@
     <ClInclude Include="PoseIO.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="snap7\snap7.h">
+      <Filter>snap7</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Image Include="image\test.png">
       <Filter>image</Filter>
     </Image>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="..\..\..\终版源码\VI-2509 视觉引导算法源码\fsk\foxconn_final\mea\snap7\snap7.dll">
+      <Filter>snap7</Filter>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <Library Include="snap7\snap7.lib">
+      <Filter>snap7</Filter>
+    </Library>
   </ItemGroup>
 </Project>
