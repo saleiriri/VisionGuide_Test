@@ -1,5 +1,4 @@
-﻿// 测试图片   C:\\Users\\ZhuanZ（无密码）\\Desktop\\visionguide\\test.png
-#include <opencv2/opencv.hpp>
+﻿#include <opencv2/opencv.hpp>
 #include <iostream>
 #include <vector>
 #include "FeatureDetectorBase.h"
@@ -8,8 +7,6 @@
 #include "TraditionalDetector.h"
 #include "YoloDetector.h"
 #include "PoseIO.h"
-
-// #include "YoloDetector.h"   // 当需要使用深度学习模型时需取消注释
 
 
 double g_scale = 1.0;              // 缩放倍数

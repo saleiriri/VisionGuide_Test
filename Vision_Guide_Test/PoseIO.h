@@ -64,5 +64,50 @@ public:
             return false;
         }
     }
+    
+    // 从JSON中加载位姿
+    static bool loadPose(const std::string& filename,
+        cv::Mat& rvec,
+        cv::Mat& tvec,
+        std::string& description,
+        double& reprojection_error) {
+        try {
+            std::ifstream file(filename);
+            if (!file.is_open()) {
+                std::cerr << "[PoseIO] 无法打开文件: " << filename << std::endl;
+                return false;
+            }
+
+            json j;
+            file >> j;      // 读取 JSON 文件内容
+            file.close();
+
+            // 读取旋转向量
+            std::vector<double> rvec_data = j["rvec"];
+            rvec = (cv::Mat_<double>(3, 1) <<
+                rvec_data[0], rvec_data[1], rvec_data[2]);
+
+            // 读取平移向量
+            std::vector<double> tvec_data = j["tvec"];
+            tvec = (cv::Mat_<double>(3, 1) <<
+                tvec_data[0], tvec_data[1], tvec_data[2]);
+
+            description = j.value("description", "");
+            reprojection_error = j.value("reprojection_error", 0.0);
+
+            std::cout << "[PoseIO] 位姿已加载: " << filename << std::endl;
+            return true;
+        }
+        catch (const std::exception& e) {
+            std::cerr << "[PoseIO] 加载失败: " << e.what() << std::endl;
+            return false;
+        }
+    }
+
+    // 检查文件是否存在
+    static bool fileExists(const std::string& filename) {
+        std::ifstream file(filename);
+        return file.good();
+    }
 };
 #pragma once
