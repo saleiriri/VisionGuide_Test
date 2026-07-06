@@ -145,12 +145,99 @@ static CircleScore evaluateEllipse(
 
     double a = ellipse.size.width / 2.0;
     double b = ellipse.size.height / 2.0;
-    if (a < 1.0 || b < 1.0) return score;
+    if (a < 1.0 || b < 1.0) return score;      // 当长短轴过小，无法采样时，直接返回 0 分
 
     cv::Point2f center = ellipse.center;
+    double theta = ellipse.angle * CV_PI / 180.0;
 
+
+    // 新增：等弧长采样     预计算弧长查找表，然后二分查找等弧长对应的角度
+    const int TABLE_SIZE = 1000;                           // 查找表精度
+
+    // 预计算弧长表（从 0 到 2π）
+    std::vector<double> arc_lengths(TABLE_SIZE + 1);       // 弧长累加值
+    std::vector<double> angles(TABLE_SIZE + 1);            // 对应的角度
+
+    double total_arc = 0.0;                                // 椭圆总周长
+
+    for (int idx = 0; idx <= TABLE_SIZE; ++idx) {
+        double t = (2.0 * CV_PI * idx) / TABLE_SIZE;       // 当前角度
+        angles[idx] = t;                                   // 记录角度
+
+        if (idx > 0) {
+            // 弧长微元：ds = sqrt(a²·sin²(t) + b²·cos²(t)) · dt
+            double dt = (2.0 * CV_PI) / TABLE_SIZE;        // 角度步长
+            double t_prev = angles[idx - 1];
+
+            // 用梯形法近似弧长积分
+            double ds_prev = sqrt(a * a * sin(t_prev) * sin(t_prev) +
+                b * b * cos(t_prev) * cos(t_prev));
+            double ds_curr = sqrt(a * a * sin(t) * sin(t) +
+                b * b * cos(t) * cos(t));
+            total_arc += (ds_prev + ds_curr) / 2.0 * dt;   // 累加弧长
+        }
+        arc_lengths[idx] = total_arc;                      // 记录累加弧长
+    }
+
+    // 等弧长采样
     for (int i = 0; i < num_samples; ++i) {
-        float angle = 2.0f * CV_PI * i / num_samples;
+        // 每个弧在 0 到 total_arc 均匀分布
+        double target_arc = (total_arc * i) / num_samples;
+
+        // 二分查找：找到 arc_lengths 中第一个 >= target_arc 的位置
+        int idx = std::lower_bound(arc_lengths.begin(), arc_lengths.end(), target_arc)
+            - arc_lengths.begin();
+
+        // 边界保护
+        if (idx > TABLE_SIZE) idx = TABLE_SIZE;
+        if (idx == 0) idx = 1;
+
+        // 根据弧长反推精确角度
+        double t_prev = angles[idx - 1];
+        double t_curr = angles[idx];
+        double arc_prev = arc_lengths[idx - 1];
+        double arc_curr = arc_lengths[idx];
+        double t = t_prev + (t_curr - t_prev) *
+            (target_arc - arc_prev) / (arc_curr - arc_prev);
+
+        // 用插值后的角度计算椭圆上的点
+        float x_local = a * cos(t);
+        float y_local = b * sin(t);
+        float px = center.x + x_local * cos(theta) - y_local * sin(theta);
+        float py = center.y + x_local * sin(theta) + y_local * cos(theta);
+
+        // 边界检查
+        if (px < 1 || px >= gray.cols - 1 || py < 1 || py >= gray.rows - 1) continue;
+
+        // 采样梯度值（亚像素）
+        float gx = getPixelValue(grad_x, px, py);
+        float gy = getPixelValue(grad_y, px, py);
+        float mag = sqrt(gx * gx + gy * gy);
+        if (mag < 0.001) continue;
+
+        // 获取精确法线方向（指向外部）
+        cv::Point2f normal = getEllipseNormal(ellipse, t);   // 用 t 而不是 angle
+        float n_len = sqrt(normal.x * normal.x + normal.y * normal.y);
+        if (n_len < 0.001) continue;
+        normal.x /= n_len;
+        normal.y /= n_len;
+
+        // 归一化
+        float g_norm_x = gx / mag;
+        float g_norm_y = gy / mag;
+
+        // 为保证方向一致性，点积取绝对值
+        float dot = std::abs(g_norm_x * normal.x + g_norm_y * normal.y);
+
+        total_strength += mag;
+        total_consistency += dot;
+        valid_count++;
+    }
+
+
+    /*  已将逻辑修改为等弧长采样，将等角度采样的代码保留作为参考
+    for (int i = 0; i < num_samples; ++i) {
+        float angle = 2.0f * CV_PI * i / num_samples;     // 等角度采样不适用于椭圆，会导致采样点在长轴方向过于密集，短轴方向过于稀疏。
 
         // 椭圆参数方程（考虑旋转）
         float x_local = a * cos(angle);
@@ -186,6 +273,7 @@ static CircleScore evaluateEllipse(
         total_consistency += dot;
         valid_count++;
     }
+    */
 
     if (valid_count > 0) {
         score.edge_strength = total_strength / valid_count;
