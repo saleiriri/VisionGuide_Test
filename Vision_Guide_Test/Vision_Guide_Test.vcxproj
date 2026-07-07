@@ -154,6 +154,7 @@
     </Manifest>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="ConfigManager.cpp" />
     <ClCompile Include="MultiFramePoseAverager.cpp" />
     <ClCompile Include="PoseSolver.cpp" />
     <ClCompile Include="RealImageFeatureDetector.cpp" />
@@ -163,6 +164,7 @@
     <ClCompile Include="YoloDectector.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="ConfigManager.h" />
     <ClInclude Include="FeatureDetectorBase.h" />
     <ClInclude Include="MultiFramePoseAverager.h" />
     <ClInclude Include="PoseIO.h" />

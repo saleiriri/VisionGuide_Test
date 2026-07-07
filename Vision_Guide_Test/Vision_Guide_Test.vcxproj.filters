@@ -45,6 +45,9 @@
     <ClCompile Include="snap7\snap7.cpp">
       <Filter>snap7</Filter>
     </ClCompile>
+    <ClCompile Include="ConfigManager.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="MultiFramePoseAverager.h">
@@ -70,6 +73,9 @@
     </ClInclude>
     <ClInclude Include="snap7\snap7.h">
       <Filter>snap7</Filter>
+    </ClInclude>
+    <ClInclude Include="ConfigManager.h">
+      <Filter>头文件</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

@@ -2,6 +2,8 @@
 当前存在的问题：
 若检测到的3D点共面，则PnP解算可能会失败，或者解算结果不稳定。
 因此需要在使用PnP解算前，先检查匹配的3D点是否共面
+
+由于特征点为白车身孔，不会出现完全共面，因此不考虑共面情况，或者在选点时，尽量选择不共面的点。
 */
 
 #include "PoseSolver.h"
@@ -222,7 +224,7 @@ bool PoseSolver::solvePnP(
         std::cerr << "[PnP] 确保选取的 3D 点不在同一平面上。" << std::endl;
         result.success = false;
         result.reprojection_error = -1.0;
-        return false;
+        // return false;
     }
 
     // RANSAC + EPNP

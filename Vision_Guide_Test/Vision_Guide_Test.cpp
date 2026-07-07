@@ -7,6 +7,7 @@
 #include "TraditionalDetector.h"
 #include "YoloDetector.h"
 #include "PoseIO.h"
+#include "ConfigManager.h"
 
 
 double g_scale = 1.0;              // 缩放倍数
@@ -104,7 +105,12 @@ void updateDisplay() {
 
 
 int main() {
-    std::cout << "\n========== PHASE 5: REAL IMAGE WITH GRID, ZOOM, PAN & ROI ==========\n" << std::endl;
+    std::cout << "\nlytest\n" << std::endl;
+    
+    // 生成配置模板只需运行一次，之后请修改 config.json调参
+    // ConfigManager::saveConfigTemplate("config.json");
+    // std::cout << "[系统] 配置模板已生成" << std::endl;
+    // return 0;
 
     // 加载图像
     std::string image_path = "image\\test.png";  // 图片路径(调试暂用)
