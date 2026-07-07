@@ -290,8 +290,8 @@ static CircleScore evaluateEllipse(
 // 返回单个ROI内所有通过初筛的候选椭圆
 static bool collectCandidatesInROI(const cv::Mat& image, const ROIParams& params,
     std::vector<DetectedFeature>& candidates,
-    const cv::Mat& gray_full,   // 全局灰度图（用于打分）
-    const cv::Mat& grad_x,      // X方向梯度
+    const cv::Mat& gray_full,     // 全局灰度图（用于打分）
+    const cv::Mat& grad_x,        // X方向梯度
     const cv::Mat& grad_y) {      // Y方向梯度
     cv::Rect valid_roi = params.roi & cv::Rect(0, 0, image.cols, image.rows);
     if (valid_roi.width <= 0 || valid_roi.height <= 0) return false;
@@ -308,7 +308,7 @@ static bool collectCandidatesInROI(const cv::Mat& image, const ROIParams& params
 
     // canny
     cv::Mat edges;
-    cv::Canny(gray, edges, 20, 100); // 提取边缘
+    cv::Canny(gray, edges, 20, 100);   // 提取边缘
     cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
     cv::morphologyEx(edges, edges, cv::MORPH_CLOSE, kernel);  //闭运算
 

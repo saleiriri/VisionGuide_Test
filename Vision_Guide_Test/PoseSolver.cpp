@@ -1,4 +1,10 @@
-﻿#include "PoseSolver.h"
+﻿/*
+当前存在的问题：
+若检测到的3D点共面，则PnP解算可能会失败，或者解算结果不稳定。
+因此需要在使用PnP解算前，先检查匹配的3D点是否共面
+*/
+
+#include "PoseSolver.h"
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
 
@@ -28,6 +34,44 @@ void PoseSolver::setObjectPoints(const std::vector<cv::Point3f>& object_points) 
         std::cerr << "3D点库少于4个点，无法解算PnP" << std::endl;
     }
 }
+
+// 检查点是否共面，特征点共面会导致PnP解算失败或不稳定
+bool arePointsCoplanar(const std::vector<cv::Point3f>& points, double threshold = 0.01) {
+    if (points.size() < 4) {
+        // 少于4个点无法判断，PnP也无法解算
+        return false;
+    }
+
+    // 计算质心
+    cv::Point3f centroid(0, 0, 0);
+    for (const auto& p : points) {
+        centroid += p;
+    }
+    centroid /= (float)points.size();
+
+    // 构建协方差矩阵
+    cv::Mat_<double> cov = cv::Mat_<double>::zeros(3, 3);
+    for (const auto& p : points) {
+        cv::Vec3d v(p.x - centroid.x, p.y - centroid.y, p.z - centroid.z);
+        cov += v * v.t();
+    }
+    cov /= (double)points.size();
+
+    // 计算特征值
+    cv::Mat eigenvalues, eigenvectors;
+    cv::eigen(cov, eigenvalues, eigenvectors);        // eigenvalues 按降序排列
+
+    // 最小特征值 / 最大特征值，如果比值小于阈值，则认为共面
+    double lambda_min = eigenvalues.at<double>(2, 0);
+    double lambda_max = eigenvalues.at<double>(0, 0);
+    // 防止除以 0
+    if (lambda_max < 1e-10) {
+        return true;  // 所有点重合，视为退化
+    }
+
+    return (lambda_min / lambda_max) < threshold;
+}
+
 
 
 void PoseSolver::reset() {
@@ -168,6 +212,16 @@ bool PoseSolver::solvePnP(
     PoseResult& result)
 {
     if (object_pts.size() < 4 || image_pts.size() < 4) {
+        return false;
+    }
+
+    // 检查 3D 点是否共面
+    bool is_coplanar = arePointsCoplanar(object_pts, 0.01);
+    if (is_coplanar) {
+        std::cerr << "[PnP] 错误：3D 点共面！" << std::endl;
+        std::cerr << "[PnP] 确保选取的 3D 点不在同一平面上。" << std::endl;
+        result.success = false;
+        result.reprojection_error = -1.0;
         return false;
     }
 
