@@ -9,6 +9,7 @@
 #include "PoseSolver.h"
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
+#include <random>
 
 
 // 构造函数
@@ -38,20 +39,18 @@ void PoseSolver::setObjectPoints(const std::vector<cv::Point3f>& object_points) 
 }
 
 // 检查点是否共面，特征点共面会导致PnP解算失败或不稳定
-bool arePointsCoplanar(const std::vector<cv::Point3f>& points, double threshold = 0.01) {
+bool PoseSolver::arePointsCoplanar(const std::vector<cv::Point3f>& points, double& out_score) {
     if (points.size() < 4) {
-        // 少于4个点无法判断，PnP也无法解算
+        out_score = 1.0;
         return false;
     }
 
-    // 计算质心
     cv::Point3f centroid(0, 0, 0);
     for (const auto& p : points) {
         centroid += p;
     }
     centroid /= (float)points.size();
 
-    // 构建协方差矩阵
     cv::Mat_<double> cov = cv::Mat_<double>::zeros(3, 3);
     for (const auto& p : points) {
         cv::Vec3d v(p.x - centroid.x, p.y - centroid.y, p.z - centroid.z);
@@ -59,19 +58,362 @@ bool arePointsCoplanar(const std::vector<cv::Point3f>& points, double threshold 
     }
     cov /= (double)points.size();
 
-    // 计算特征值
     cv::Mat eigenvalues, eigenvectors;
-    cv::eigen(cov, eigenvalues, eigenvectors);        // eigenvalues 按降序排列
+    cv::eigen(cov, eigenvalues, eigenvectors);
 
-    // 最小特征值 / 最大特征值，如果比值小于阈值，则认为共面
     double lambda_min = eigenvalues.at<double>(2, 0);
     double lambda_max = eigenvalues.at<double>(0, 0);
-    // 防止除以 0
+
     if (lambda_max < 1e-10) {
-        return true;  // 所有点重合，视为退化
+        out_score = 0.0;
+        return true;
     }
 
-    return (lambda_min / lambda_max) < threshold;
+    out_score = lambda_min / lambda_max;
+    return out_score < config_.coplanar_threshold_ratio;
+}
+
+// 解的有效性验证
+bool PoseSolver::validatePose(const cv::Mat& rvec, const cv::Mat& tvec) {
+    if (!config_.enable_pose_validation) return true;
+
+    // 检查旋转矩阵行列式
+    cv::Mat R;
+    cv::Rodrigues(rvec, R);
+    double det = cv::determinant(R);
+    if (std::abs(det - 1.0) > 0.01) {
+        std::cerr << "[PnP] 无效旋转矩阵，det(R)=" << det << std::endl;
+        return false;
+    }
+
+    // 检查深度
+    double depth = tvec.at<double>(2);
+    if (depth < config_.min_depth_mm || depth > config_.max_depth_mm) {
+        std::cerr << "[PnP] 深度异常，t.z=" << depth << " mm" << std::endl;
+        return false;
+    }
+
+    // 检查旋转角度
+    double angle_deg = cv::norm(rvec) * 180.0 / CV_PI;
+    if (angle_deg > config_.max_rotation_deg) {
+        std::cerr << "[PnP] 旋转角度过大，angle=" << angle_deg << "°" << std::endl;
+        return false;
+    }
+
+    return true;
+}
+
+bool PoseSolver::runIppeRansac(
+    const std::vector<cv::Point3f>& object_pts,
+    const std::vector<cv::Point2f>& image_pts,
+    std::vector<int>& inliers) {
+
+    int n_points = (int)object_pts.size();
+    if (n_points < 4) {
+        std::cerr << "[IPPE RANSAC] 点数不足: " << n_points << std::endl;
+        return false;
+    }
+
+    inliers.clear();
+    std::vector<int> best_inliers;
+    double best_error = std::numeric_limits<double>::max();
+
+    std::random_device rd;
+    std::mt19937 gen(rd());
+    std::uniform_int_distribution<> dis(0, n_points - 1);
+
+    int num_samples = config_.ippe_ransac_samples;
+    if (n_points <= 6) num_samples = std::min(num_samples, 50);
+
+    std::cout << "[IPPE RANSAC] 采样 " << num_samples << " 次，总点数=" << n_points << std::endl;
+
+    // 检查4个点是否适合 IPPE（必须共面且不共线）
+    auto isDegenerateForIPPE = [](const std::vector<cv::Point3f>& pts) -> bool {
+        if (pts.size() != 4) return true;
+
+        // 取前三点构成平面
+        cv::Point3f v1 = pts[1] - pts[0];
+        cv::Point3f v2 = pts[2] - pts[0];
+        cv::Point3f normal = v1.cross(v2);
+        double normLen = cv::norm(normal);
+
+        if (normLen < 1e-6) return true;  // 三点共线或重合，无法构成平面
+
+        // 计算第四点到平面的距离
+        double d = std::abs(normal.dot(pts[3] - pts[0])) / normLen;
+
+        // 如果距离 > 0.1mm，说明不共面 → IPPE 不适用
+        return d > 0.1;
+        };
+
+
+    // 随机采样
+    for (int iter = 0; iter < num_samples; ++iter) {
+        // 随机选 4 个不重复的点
+        std::vector<int> sample;
+        while (sample.size() < 4) {
+            int idx = dis(gen);
+            if (std::find(sample.begin(), sample.end(), idx) == sample.end()) {
+                sample.push_back(idx);
+            }
+        }
+
+        // 构造采样点
+        std::vector<cv::Point3f> sample_3d;
+        std::vector<cv::Point2f> sample_2d;
+        for (int idx : sample) {
+            sample_3d.push_back(object_pts[idx]);
+            sample_2d.push_back(image_pts[idx]);
+        }
+
+        // 检查是否适合 IPPE
+        if (isDegenerateForIPPE(sample_3d)) {
+            continue;  // 不适合 IPPE，跳过这个样本
+        }
+
+        // 尝试 IPPE 解算
+        cv::Mat rvec_temp, tvec_temp;
+        bool ok = false;
+
+        try {
+            ok = cv::solvePnP(
+                sample_3d, sample_2d, camera_matrix_, dist_coeffs_,
+                rvec_temp, tvec_temp, false, cv::SOLVEPNP_IPPE
+            );
+        }
+        catch (const cv::Exception& e) {
+            std::cerr << "[IPPE RANSAC] solvePnP(IPPE) 异常: " << e.what() << std::endl;
+            continue;
+        }
+
+        if (!ok) continue;
+
+        // 验证解的有效性
+        if (!validatePose(rvec_temp, tvec_temp)) continue;
+
+        // 计算所有点的重投影误差
+        std::vector<cv::Point2f> projected;
+        try {
+            cv::projectPoints(object_pts, rvec_temp, tvec_temp,
+                camera_matrix_, dist_coeffs_, projected);
+        }
+        catch (const cv::Exception& e) {
+            std::cerr << "[IPPE RANSAC] projectPoints 异常: " << e.what() << std::endl;
+            continue;
+        }
+
+        if (projected.size() != (size_t)n_points) {
+            std::cerr << "[IPPE RANSAC] projectPoints 输出尺寸不匹配: "
+                << projected.size() << " vs " << n_points << std::endl;
+            continue;
+        }
+
+        // ===== 统计内点 =====
+        std::vector<int> inlier_candidates;
+        double total_error = 0.0;
+        for (int idx = 0; idx < n_points; ++idx) {
+            double err = cv::norm(image_pts[idx] - projected[idx]);
+            if (err < config_.ippe_ransac_threshold) {
+                inlier_candidates.push_back(idx);
+                total_error += err;
+            }
+        }
+
+        // ===== 更新最优解 =====
+        if (inlier_candidates.size() >= 4) {
+            double avg_error = total_error / inlier_candidates.size();
+            if (avg_error < best_error) {
+                best_error = avg_error;
+                best_inliers = inlier_candidates;
+                std::cout << "[IPPE RANSAC] 找到更好解: 内点数="
+                    << inlier_candidates.size()
+                    << ", 误差=" << avg_error << std::endl;
+            }
+        }
+    }
+
+    // 返回结果
+    if (best_inliers.size() < 4) {
+        std::cerr << "[IPPE RANSAC] 未找到有效解" << std::endl;
+        return false;
+    }
+
+    inliers = best_inliers;
+    std::cout << "[IPPE RANSAC] 完成，内点数=" << inliers.size()
+        << ", 误差=" << best_error << std::endl;
+    return true;
+}
+
+// IPPE + RANSAC 解算共面点的PnP问题
+bool PoseSolver::solveCoplanarPnP(
+    const std::vector<cv::Point3f>& object_pts,
+    const std::vector<cv::Point2f>& image_pts,
+    PoseResult& result) {
+    result.solver_used = "IPPE + RANSAC";
+
+    std::vector<int> inliers;
+    bool success = false;
+
+    if (config_.enable_ippe_ransac) {
+        success = runIppeRansac(object_pts, image_pts, inliers);
+    }
+    else {
+        inliers.resize(object_pts.size());
+        std::iota(inliers.begin(), inliers.end(), 0);
+        success = true;
+    }
+
+    if (!success || inliers.size() < 4) {
+        if (config_.fallback_to_iterative) {
+            return solveIterativePnP(object_pts, image_pts, result);
+        }
+        return false;
+    }
+
+    std::vector<cv::Point3f> inlier_3d;
+    std::vector<cv::Point2f> inlier_2d;
+    for (int idx : inliers) {
+        inlier_3d.push_back(object_pts[idx]);
+        inlier_2d.push_back(image_pts[idx]);
+    }
+
+    success = cv::solvePnP(
+        inlier_3d, inlier_2d, camera_matrix_, dist_coeffs_,
+        result.rvec, result.tvec, false, cv::SOLVEPNP_IPPE
+    );
+
+    if (!success) {
+        if (config_.fallback_to_iterative) {
+            return solveIterativePnP(inlier_3d, inlier_2d, result);
+        }
+        return false;
+    }
+
+    if (!validatePose(result.rvec, result.tvec)) {
+        if (config_.fallback_to_iterative) {
+            return solveIterativePnP(inlier_3d, inlier_2d, result);
+        }
+        return false;
+    }
+
+    cv::TermCriteria criteria(
+        cv::TermCriteria::EPS + cv::TermCriteria::COUNT,
+        config_.ippe_refine_iterations,
+        config_.ippe_refine_epsilon
+    );
+    cv::solvePnP(
+        inlier_3d, inlier_2d, camera_matrix_, dist_coeffs_,
+        result.rvec, result.tvec, true, cv::SOLVEPNP_ITERATIVE
+    );
+
+    cv::Rodrigues(result.rvec, result.R);
+    result.reprojection_error = computeReprojectionError(
+        object_pts, image_pts, result.rvec, result.tvec
+    );
+    result.success = true;
+    result.inlier_count = (int)inliers.size();
+    result.matched_count = (int)object_pts.size();
+    result.inlier_indices = inliers;
+
+    std::cout << "[PnP] IPPE 解算成功，内点数=" << inliers.size()
+        << "，重投影误差=" << result.reprojection_error << " px" << std::endl;
+    return true;
+}
+
+// EPNP + RANSAC 解算非共面点的PnP问题
+bool PoseSolver::solveGeneralPnP(
+    const std::vector<cv::Point3f>& object_pts,
+    const std::vector<cv::Point2f>& image_pts,
+    PoseResult& result) {
+    result.solver_used = "EPNP + RANSAC";
+
+    std::vector<int> inliers;
+    bool success = cv::solvePnPRansac(
+        object_pts, image_pts, camera_matrix_, dist_coeffs_,
+        result.rvec, result.tvec, false,
+        config_.ransac_iterations,
+        config_.ransac_threshold,
+        config_.ransac_confidence,
+        inliers,
+        cv::SOLVEPNP_EPNP
+    );
+
+    if (!success || inliers.size() < 4) {
+        if (config_.fallback_to_iterative) {
+            return solveIterativePnP(object_pts, image_pts, result);
+        }
+        return false;
+    }
+
+    result.inlier_count = (int)inliers.size();
+    result.inlier_indices = inliers;
+
+    std::vector<cv::Point3f> inlier_3d;
+    std::vector<cv::Point2f> inlier_2d;
+    for (int idx : inliers) {
+        inlier_3d.push_back(object_pts[idx]);
+        inlier_2d.push_back(image_pts[idx]);
+    }
+
+    cv::TermCriteria criteria(
+        cv::TermCriteria::EPS + cv::TermCriteria::COUNT,
+        config_.lm_max_iterations,
+        config_.lm_epsilon
+    );
+
+    success = cv::solvePnP(
+        inlier_3d, inlier_2d, camera_matrix_, dist_coeffs_,
+        result.rvec, result.tvec, true, cv::SOLVEPNP_ITERATIVE
+    );
+
+    if (!success) return false;
+
+    if (!validatePose(result.rvec, result.tvec)) return false;
+
+    cv::Rodrigues(result.rvec, result.R);
+    result.reprojection_error = computeReprojectionError(
+        object_pts, image_pts, result.rvec, result.tvec
+    );
+    result.success = true;
+    result.matched_count = (int)object_pts.size();
+
+    std::cout << "[PnP] EPNP 解算成功，内点数=" << inliers.size()
+        << "，重投影误差=" << result.reprojection_error << " px" << std::endl;
+    return true;
+}
+
+// IPPE + RANSAC 解算共面点的PnP问题
+bool PoseSolver::solveIterativePnP(
+    const std::vector<cv::Point3f>& object_pts,
+    const std::vector<cv::Point2f>& image_pts,
+    PoseResult& result) {
+    result.solver_used = "ITERATIVE (回退)";
+
+    cv::TermCriteria criteria(
+        cv::TermCriteria::EPS + cv::TermCriteria::COUNT,
+        config_.lm_max_iterations,
+        config_.lm_epsilon
+    );
+
+    bool success = cv::solvePnP(
+        object_pts, image_pts, camera_matrix_, dist_coeffs_,
+        result.rvec, result.tvec, false, cv::SOLVEPNP_ITERATIVE
+    );
+
+    if (!success) return false;
+    if (!validatePose(result.rvec, result.tvec)) return false;
+
+    cv::Rodrigues(result.rvec, result.R);
+    result.reprojection_error = computeReprojectionError(
+        object_pts, image_pts, result.rvec, result.tvec
+    );
+    result.success = true;
+    result.inlier_count = (int)object_pts.size();
+    result.matched_count = (int)object_pts.size();
+
+    std::cout << "[PnP] ITERATIVE 解算成功（回退），"
+        << "重投影误差=" << result.reprojection_error << " px" << std::endl;
+    return true;
 }
 
 
@@ -207,6 +549,32 @@ double PoseSolver::computeReprojectionError(
     return total_error / image_pts.size();
 }
 
+bool PoseSolver::solvePnP(
+    const std::vector<cv::Point3f>& object_pts,
+    const std::vector<cv::Point2f>& image_pts,
+    PoseResult& result)
+{
+    if (object_pts.size() < 4 || image_pts.size() < 4) {
+        return false;
+    }
+
+    // 共面检测（使用配置参数）
+    double coplanar_score = 0.0;
+    bool is_coplanar = arePointsCoplanar(object_pts, coplanar_score);
+
+    std::cout << "[PnP] 共面评分=" << coplanar_score
+        << (is_coplanar ? " (共面)" : " (非共面)") << std::endl;
+
+    // 根据共面情况选择解算策略
+    if (is_coplanar && config_.prefer_ippe_for_plane) {
+        return solveCoplanarPnP(object_pts, image_pts, result);
+    }
+    else {
+        return solveGeneralPnP(object_pts, image_pts, result);
+    }
+}
+
+/*
 //  PnP 解算
 bool PoseSolver::solvePnP(
     const std::vector<cv::Point3f>& object_pts,
@@ -219,6 +587,9 @@ bool PoseSolver::solvePnP(
 
     // 检查 3D 点是否共面
     bool is_coplanar = arePointsCoplanar(object_pts, 0.01);
+    
+    
+    /* 未考虑共面情况，直接返回错误
     if (is_coplanar) {
         std::cerr << "[PnP] 错误：3D 点共面！" << std::endl;
         std::cerr << "[PnP] 确保选取的 3D 点不在同一平面上。" << std::endl;
@@ -226,6 +597,67 @@ bool PoseSolver::solvePnP(
         result.reprojection_error = -1.0;
         // return false;
     }
+    *   /
+
+    if (is_coplanar) {
+        std::cout << "[PnP] 检测到 3D 点共面，使用 IPPE 解算器" << std::endl;
+
+        // IPPE 需要至少 4 个点
+        if (object_pts.size() < 4) {
+            std::cerr << "[PnP] IPPE 需要至少 4 个点" << std::endl;
+            return false;
+        }
+
+        // 直接调用 solvePnP + IPPE
+        bool success = cv::solvePnP(
+            object_pts, image_pts, camera_matrix_, dist_coeffs_,
+            result.rvec, result.tvec, false, cv::SOLVEPNP_IPPE
+        );
+
+        if (!success) {
+            // IPPE 失败（可能是 4 点共线），回退到 ITERATIVE
+            std::cerr << "[PnP] IPPE 解算失败，回退到 ITERATIVE" << std::endl;
+            success = cv::solvePnP(
+                object_pts, image_pts, camera_matrix_, dist_coeffs_,
+                result.rvec, result.tvec, false, cv::SOLVEPNP_ITERATIVE
+            );
+        }
+
+        if (!success) {
+            std::cerr << "[PnP] 所有解算器均失败" << std::endl;
+            return false;
+        }
+
+        // 轻量级 LM 精修（只做 5 次迭代，避免过度拟合）
+        cv::TermCriteria criteria(
+            cv::TermCriteria::EPS + cv::TermCriteria::COUNT,
+            5,  // ← 只迭代 5 次
+            0.001
+        );
+        cv::solvePnP(
+            object_pts, image_pts, camera_matrix_, dist_coeffs_,
+            result.rvec, result.tvec, true, cv::SOLVEPNP_ITERATIVE
+        );
+
+        // 转换为旋转矩阵
+        cv::Rodrigues(result.rvec, result.R);
+
+        // 计算重投影误差
+        result.reprojection_error = computeReprojectionError(
+            object_pts, image_pts, result.rvec, result.tvec
+        );
+
+        result.success = true;
+        result.matched_count = (int)object_pts.size();
+        result.inlier_count = (int)object_pts.size();  // IPPE 没有 RANSAC，所有点都是内点
+
+        std::cout << "[PnP] ✅ IPPE 解算成功，重投影误差="
+            << result.reprojection_error << " px" << std::endl;
+
+        return true;
+    }
+
+
 
     // RANSAC + EPNP
     std::vector<int> inliers;
@@ -285,6 +717,7 @@ bool PoseSolver::solvePnP(
 
     return true;
 }
+*/
 
 // 自动匹配 + PnP 解算
 PoseResult PoseSolver::solve(const std::vector<cv::Point2f>& image_points) {
