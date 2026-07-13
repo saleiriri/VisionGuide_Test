@@ -8,6 +8,8 @@
 #include "YoloDetector.h"
 #include "PoseIO.h"
 #include "ConfigManager.h"
+#include <spdlog/spdlog.h>
+#include "Logger.h"
 
 
 double g_scale = 1.0;              // 缩放倍数
@@ -105,7 +107,10 @@ void updateDisplay() {
 
 
 int main() {
-    std::cout << "\nlytest\n" << std::endl;
+    // std::cout << "\nlytest\n" << std::endl;
+    Logger::init("logs/vision_guide.log");
+
+    LOG_INFO("程序启动成功！");
     
     // 生成配置模板只需运行一次，之后请修改 config.json调参
     // ConfigManager::saveConfigTemplate("config.json");
