@@ -558,56 +558,6 @@ bool PoseSolver::solvePnP(
         return false;
     }
 
-    // 共面检测（使用配置参数）
-    double coplanar_score = 0.0;
-    bool is_coplanar = arePointsCoplanar(object_pts, coplanar_score);
-
-    std::cout << "[PnP] 共面评分=" << coplanar_score
-        << (is_coplanar ? " (共面)" : " (非共面)") << std::endl;
-
-    // 根据共面情况选择解算策略
-    if (is_coplanar && config_.prefer_ippe_for_plane) {
-        return solveCoplanarPnP(object_pts, image_pts, result);
-    }
-    else {
-        return solveGeneralPnP(object_pts, image_pts, result);
-    }
-}
-
-/*
-//  PnP 解算
-bool PoseSolver::solvePnP(
-    const std::vector<cv::Point3f>& object_pts,
-    const std::vector<cv::Point2f>& image_pts,
-    PoseResult& result)
-{
-    if (object_pts.size() < 4 || image_pts.size() < 4) {
-        return false;
-    }
-
-    // 检查 3D 点是否共面
-    bool is_coplanar = arePointsCoplanar(object_pts, 0.01);
-    
-    
-    /* 未考虑共面情况，直接返回错误
-    if (is_coplanar) {
-        std::cerr << "[PnP] 错误：3D 点共面！" << std::endl;
-        std::cerr << "[PnP] 确保选取的 3D 点不在同一平面上。" << std::endl;
-        result.success = false;
-        result.reprojection_error = -1.0;
-        // return false;
-    }
-    *   /
-
-    if (is_coplanar) {
-        std::cout << "[PnP] 检测到 3D 点共面，使用 IPPE 解算器" << std::endl;
-
-        // IPPE 需要至少 4 个点
-        if (object_pts.size() < 4) {
-            std::cerr << "[PnP] IPPE 需要至少 4 个点" << std::endl;
-            return false;
-        }
-
         // 直接调用 solvePnP + IPPE
         bool success = cv::solvePnP(
             object_pts, image_pts, camera_matrix_, dist_coeffs_,
@@ -675,49 +625,6 @@ bool PoseSolver::solvePnP(
         std::cerr << "[PoseSolver] RANSAC 失败，内点数=" << inliers.size() << std::endl;
         return false;
     }
-
-    result.inlier_count = (int)inliers.size();
-    result.inlier_indices = inliers;
-
-    // 提取内点
-    std::vector<cv::Point3f> inlier_3d;
-    std::vector<cv::Point2f> inlier_2d;
-    for (int idx : inliers) {
-        inlier_3d.push_back(object_pts[idx]);
-        inlier_2d.push_back(image_pts[idx]);
-    }
-
-    // LM 非线性优化
-    cv::TermCriteria criteria(
-        cv::TermCriteria::EPS + cv::TermCriteria::COUNT,
-        config_.lm_max_iterations,
-        config_.lm_epsilon
-    );
-
-    success = cv::solvePnP(
-        inlier_3d, inlier_2d, camera_matrix_, dist_coeffs_,
-        result.rvec, result.tvec, true, cv::SOLVEPNP_ITERATIVE
-    );
-
-    if (!success) {
-        std::cerr << "[PoseSolver] LM 优化失败" << std::endl;
-        return false;
-    }
-
-    // 转换为旋转矩阵
-    cv::Rodrigues(result.rvec, result.R);
-
-    // 计算重投影误差
-    result.reprojection_error = computeReprojectionError(
-        object_pts, image_pts, result.rvec, result.tvec
-    );
-
-    result.success = true;
-    result.matched_count = (int)object_pts.size();
-
-    return true;
-}
-*/
 
 // 自动匹配 + PnP 解算
 PoseResult PoseSolver::solve(const std::vector<cv::Point2f>& image_points) {
