@@ -9,6 +9,7 @@
 #include <ctime>
 #include <vector>
 #include <nlohmann/json.hpp>
+#include "Logger.h"
 
 using json = nlohmann::json;
 
@@ -50,17 +51,18 @@ public:
 
             std::ofstream file(filename);
             if (!file.is_open()) {
-                std::cerr << "无法打开文件: " << filename << std::endl;
+                LOG_ERROR("无法打开文件: {}", filename);
                 return false;
             }
             file << j.dump(4);   // 将 JSON 对象以缩进格式写入文件
             file.close();
 
             std::cout << "位姿已保存到: " << filename << std::endl;
+            LOG_INFO("位姿已保存到: {}", filename);
             return true;
         }
         catch (const std::exception& e) {
-            std::cerr << "保存失败: " << e.what() << std::endl;
+            LOG_ERROR("保存失败: {}", e.what());
             return false;
         }
     }
@@ -74,7 +76,7 @@ public:
         try {
             std::ifstream file(filename);
             if (!file.is_open()) {
-                std::cerr << "[PoseIO] 无法打开文件: " << filename << std::endl;
+                LOG_ERROR("无法打开文件: {}", filename);
                 return false;
             }
 
@@ -95,11 +97,11 @@ public:
             description = j.value("description", "");
             reprojection_error = j.value("reprojection_error", 0.0);
 
-            std::cout << "[PoseIO] 位姿已加载: " << filename << std::endl;
+            LOG_INFO("[PoseIO] 位姿已加载: {}", filename);
             return true;
         }
         catch (const std::exception& e) {
-            std::cerr << "[PoseIO] 加载失败: " << e.what() << std::endl;
+            LOG_ERROR("[PoseIO] 加载失败: {}", e.what());
             return false;
         }
     }

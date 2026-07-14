@@ -10,6 +10,8 @@
 #include <opencv2/calib3d.hpp>
 #include <opencv2/imgproc.hpp>
 #include <random>
+#include "Logger.h"
+#include <sstream>
 
 
 // 构造函数
@@ -34,11 +36,13 @@ void PoseSolver::setCameraParams(const cv::Mat& camera_matrix, const cv::Mat& di
 void PoseSolver::setObjectPoints(const std::vector<cv::Point3f>& object_points) {
     object_points_ = object_points;
     if (object_points_.size() < 4) {
-        std::cerr << "3D点库少于4个点，无法解算PnP" << std::endl;
+        // std::cerr << "3D点库少于4个点，无法解算PnP" << std::endl;
+        LOG_ERROR("3D点库少于4个点，无法解算PnP");
     }
 }
 
 // 检查点是否共面，特征点共面会导致PnP解算失败或不稳定
+/*
 bool PoseSolver::arePointsCoplanar(const std::vector<cv::Point3f>& points, double& out_score) {
     if (points.size() < 4) {
         out_score = 1.0;
@@ -72,6 +76,44 @@ bool PoseSolver::arePointsCoplanar(const std::vector<cv::Point3f>& points, doubl
     out_score = lambda_min / lambda_max;
     return out_score < config_.coplanar_threshold_ratio;
 }
+*/
+// 使用绝对阈值判断而不是特征值比率法
+bool PoseSolver::arePointsCoplanar(const std::vector<cv::Point3f>& points, double& out_score) {
+    if (points.size() < 4) {
+        out_score = 1.0;
+        return false;
+    }
+
+    // 计算质心
+    cv::Point3f centroid(0, 0, 0);
+    for (const auto& p : points) centroid += p;
+    centroid /= (float)points.size();
+
+    // 构建矩阵并进行 SVD 分解，寻找法向量
+    cv::Mat_<double> A(points.size(), 3);
+    for (size_t i = 0; i < points.size(); ++i) {
+        A(i, 0) = points[i].x - centroid.x;
+        A(i, 1) = points[i].y - centroid.y;
+        A(i, 2) = points[i].z - centroid.z;
+    }
+
+    cv::Mat w, u, vt;
+    cv::SVDecomp(A, w, u, vt);
+
+    // vt 的最后一行即为拟合平面的法向量
+    cv::Vec3d normal(vt.at<double>(2, 0), vt.at<double>(2, 1), vt.at<double>(2, 2));
+
+    // 计算所有点到拟合平面的平均绝对距离
+    double total_dist = 0.0;
+    for (const auto& p : points) {
+        cv::Vec3d v(p.x - centroid.x, p.y - centroid.y, p.z - centroid.z);
+        total_dist += std::abs(v.dot(normal));
+    }
+    out_score = total_dist / points.size(); // 这就是和 Python 脚本一样的物理距离
+
+    // 使用绝对距离阈值（例如 1.0 mm）来判断
+    return out_score < config_.coplanar_distance_threshold;
+}
 
 // 解的有效性验证
 bool PoseSolver::validatePose(const cv::Mat& rvec, const cv::Mat& tvec) {
@@ -82,24 +124,28 @@ bool PoseSolver::validatePose(const cv::Mat& rvec, const cv::Mat& tvec) {
     cv::Rodrigues(rvec, R);
     double det = cv::determinant(R);
     if (std::abs(det - 1.0) > 0.01) {
-        std::cerr << "[PnP] 无效旋转矩阵，det(R)=" << det << std::endl;
+        // std::cerr << "[PnP] 无效旋转矩阵，det(R)=" << det << std::endl;
+        LOG_ERROR("[PnP] 无效旋转矩阵，det(R)={}", det);
         return false;
     }
 
+    /*    cad3D模型中z轴不是相机深度方向，因此不检查深度和旋转角度
     // 检查深度
     double depth = tvec.at<double>(2);
     if (depth < config_.min_depth_mm || depth > config_.max_depth_mm) {
-        std::cerr << "[PnP] 深度异常，t.z=" << depth << " mm" << std::endl;
+        // std::cerr << "[PnP] 深度异常，t.z=" << depth << " mm" << std::endl;
+        LOG_ERROR("[PnP] 深度异常，t.z={} mm", depth);
         return false;
     }
-
+    
     // 检查旋转角度
     double angle_deg = cv::norm(rvec) * 180.0 / CV_PI;
     if (angle_deg > config_.max_rotation_deg) {
-        std::cerr << "[PnP] 旋转角度过大，angle=" << angle_deg << "°" << std::endl;
+        // std::cerr << "[PnP] 旋转角度过大，angle=" << angle_deg << "°" << std::endl;
+        LOG_ERROR("[PnP] 旋转角度过大，angle={}°", angle_deg);
         return false;
     }
-
+    */
     return true;
 }
 
@@ -110,7 +156,8 @@ bool PoseSolver::runIppeRansac(
 
     int n_points = (int)object_pts.size();
     if (n_points < 4) {
-        std::cerr << "[IPPE RANSAC] 点数不足: " << n_points << std::endl;
+        // std::cerr << "[IPPE RANSAC] 点数不足: " << n_points << std::endl;
+        LOG_ERROR("[IPPE RANSAC] 点数不足: {}", n_points);
         return false;
     }
 
@@ -125,7 +172,8 @@ bool PoseSolver::runIppeRansac(
     int num_samples = config_.ippe_ransac_samples;
     if (n_points <= 6) num_samples = std::min(num_samples, 50);
 
-    std::cout << "[IPPE RANSAC] 采样 " << num_samples << " 次，总点数=" << n_points << std::endl;
+    // std::cout << "[IPPE RANSAC] 采样 " << num_samples << " 次，总点数=" << n_points << std::endl;
+    LOG_INFO("[IPPE RANSAC] 采样 {} 次，总点数={}", num_samples, n_points);
 
     // 检查4个点是否适合 IPPE（必须共面且不共线）
     auto isDegenerateForIPPE = [](const std::vector<cv::Point3f>& pts) -> bool {
@@ -182,7 +230,8 @@ bool PoseSolver::runIppeRansac(
             );
         }
         catch (const cv::Exception& e) {
-            std::cerr << "[IPPE RANSAC] solvePnP(IPPE) 异常: " << e.what() << std::endl;
+            // std::cerr << "[IPPE RANSAC] solvePnP(IPPE) 异常: " << e.what() << std::endl;
+            LOG_ERROR("[IPPE RANSAC] solvePnP(IPPE) 异常: {}", e.what());
             continue;
         }
 
@@ -198,17 +247,18 @@ bool PoseSolver::runIppeRansac(
                 camera_matrix_, dist_coeffs_, projected);
         }
         catch (const cv::Exception& e) {
-            std::cerr << "[IPPE RANSAC] projectPoints 异常: " << e.what() << std::endl;
+            // std::cerr << "[IPPE RANSAC] projectPoints 异常: " << e.what() << std::endl;
+            LOG_ERROR("[IPPE RANSAC] projectPoints 异常: {}", e.what());
             continue;
         }
 
         if (projected.size() != (size_t)n_points) {
-            std::cerr << "[IPPE RANSAC] projectPoints 输出尺寸不匹配: "
-                << projected.size() << " vs " << n_points << std::endl;
+            // std::cerr << "[IPPE RANSAC] projectPoints 输出尺寸不匹配: " << projected.size() << " vs " << n_points << std::endl;
+            LOG_ERROR("[IPPE RANSAC] projectPoints 输出尺寸不匹配: {} vs {}", projected.size(), n_points);
             continue;
         }
 
-        // ===== 统计内点 =====
+        // 统计内点
         std::vector<int> inlier_candidates;
         double total_error = 0.0;
         for (int idx = 0; idx < n_points; ++idx) {
@@ -219,28 +269,28 @@ bool PoseSolver::runIppeRansac(
             }
         }
 
-        // ===== 更新最优解 =====
+        // 更新最优解
         if (inlier_candidates.size() >= 4) {
             double avg_error = total_error / inlier_candidates.size();
             if (avg_error < best_error) {
                 best_error = avg_error;
                 best_inliers = inlier_candidates;
-                std::cout << "[IPPE RANSAC] 找到更好解: 内点数="
-                    << inlier_candidates.size()
-                    << ", 误差=" << avg_error << std::endl;
+                // std::cout << "[IPPE RANSAC] 找到更好解: 内点数=" << inlier_candidates.size() << ", 误差=" << avg_error << std::endl;
+                LOG_INFO("[IPPE RANSAC] 找到更好解: 内点数={}, 误差={}", inlier_candidates.size(), avg_error);
             }
         }
     }
 
     // 返回结果
     if (best_inliers.size() < 4) {
-        std::cerr << "[IPPE RANSAC] 未找到有效解" << std::endl;
+        // std::cerr << "[IPPE RANSAC] 未找到有效解" << std::endl;
+        LOG_ERROR("[IPPE RANSAC] 未找到有效解");
         return false;
     }
 
     inliers = best_inliers;
-    std::cout << "[IPPE RANSAC] 完成，内点数=" << inliers.size()
-        << ", 误差=" << best_error << std::endl;
+    // std::cout << "[IPPE RANSAC] 完成，内点数=" << inliers.size() << ", 误差=" << best_error << std::endl;
+    LOG_INFO("[IPPE RANSAC] 完成，内点数={}, 误差={}", inliers.size(), best_error);
     return true;
 }
 
@@ -310,13 +360,14 @@ bool PoseSolver::solveCoplanarPnP(
     result.reprojection_error = computeReprojectionError(
         object_pts, image_pts, result.rvec, result.tvec
     );
+
     result.success = true;
     result.inlier_count = (int)inliers.size();
     result.matched_count = (int)object_pts.size();
     result.inlier_indices = inliers;
 
-    std::cout << "[PnP] IPPE 解算成功，内点数=" << inliers.size()
-        << "，重投影误差=" << result.reprojection_error << " px" << std::endl;
+    // std::cout << "[PnP] IPPE 解算成功，内点数=" << inliers.size() << "，重投影误差=" << result.reprojection_error << " px" << std::endl;
+    LOG_INFO("[PnP] IPPE 解算成功，内点数={}, 重投影误差={}", inliers.size(), result.reprojection_error);
     return true;
 }
 
@@ -377,8 +428,8 @@ bool PoseSolver::solveGeneralPnP(
     result.success = true;
     result.matched_count = (int)object_pts.size();
 
-    std::cout << "[PnP] EPNP 解算成功，内点数=" << inliers.size()
-        << "，重投影误差=" << result.reprojection_error << " px" << std::endl;
+    // std::cout << "[PnP] EPNP 解算成功，内点数=" << inliers.size() << "，重投影误差=" << result.reprojection_error << " px" << std::endl;
+    LOG_INFO("[PnP] EPNP 解算成功，内点数={}, 重投影误差={} px", inliers.size(), result.reprojection_error);
     return true;
 }
 
@@ -411,8 +462,8 @@ bool PoseSolver::solveIterativePnP(
     result.inlier_count = (int)object_pts.size();
     result.matched_count = (int)object_pts.size();
 
-    std::cout << "[PnP] ITERATIVE 解算成功（回退），"
-        << "重投影误差=" << result.reprojection_error << " px" << std::endl;
+    // std::cout << "[PnP] ITERATIVE 解算成功（回退），" << "重投影误差=" << result.reprojection_error << " px" << std::endl;
+    LOG_INFO("[PnP] ITERATIVE 解算成功（回退），重投影误差={}", result.reprojection_error);
     return true;
 }
 
@@ -438,7 +489,8 @@ bool PoseSolver::matchByDistance(
     int N_2d = (int)image_2d_pts.size();
 
     if (N_3d < 4 || N_2d < 4) {
-        std::cerr << "点数不足：3D库=" << N_3d << ", 2D点=" << N_2d << std::endl;
+        // std::cerr << "点数不足：3D库=" << N_3d << ", 2D点=" << N_2d << std::endl;
+        LOG_ERROR("点数不足：3D库={}, 2D点={}", N_3d, N_2d);
         return false;
     }
 
@@ -510,8 +562,8 @@ bool PoseSolver::matchByDistance(
 
     // 验证结果
     if (best_indices.empty() || best_error > config_.match_tolerance_ratio) {
-        std::cerr << "[PoseSolver] 匹配失败，误差=" << best_error
-            << " (阈值=" << config_.match_tolerance_ratio << ")" << std::endl;
+        // std::cerr << "[PoseSolver] 匹配失败，误差=" << best_error << " (阈值=" << config_.match_tolerance_ratio << ")" << std::endl;
+        LOG_ERROR("匹配失败，误差={}, 阈值={}", best_error, config_.match_tolerance_ratio);
         return false;
     }
 
@@ -522,10 +574,15 @@ bool PoseSolver::matchByDistance(
     }
     matched_2d = image_2d_pts;
 
-    std::cout << "[PoseSolver]匹配成功，误差=" << best_error
-        << "，匹配索引: ";
-    for (int idx : best_indices) std::cout << idx << " ";
-    std::cout << std::endl;
+    // std::cout << "[PoseSolver]匹配成功，误差=" << best_error << "，匹配索引: ";
+    LOG_INFO("匹配成功，误差={}，匹配索引: ", best_error);
+    // for (int idx : best_indices) std::cout << idx << " ";
+    // std::cout << std::endl;
+    std::ostringstream oss;
+    for (int idx : best_indices) {
+        oss << idx << " ";
+    }
+    LOG_INFO("Best indices: {}", oss.str());
 
     return matched_3d.size() >= 4;
 }
@@ -558,90 +615,28 @@ bool PoseSolver::solvePnP(
         return false;
     }
 
-        // 直接调用 solvePnP + IPPE
-        bool success = cv::solvePnP(
-            object_pts, image_pts, camera_matrix_, dist_coeffs_,
-            result.rvec, result.tvec, false, cv::SOLVEPNP_IPPE
-        );
-
-        if (!success) {
-            // IPPE 失败（可能是 4 点共线），回退到 ITERATIVE
-            std::cerr << "[PnP] IPPE 解算失败，回退到 ITERATIVE" << std::endl;
-            success = cv::solvePnP(
-                object_pts, image_pts, camera_matrix_, dist_coeffs_,
-                result.rvec, result.tvec, false, cv::SOLVEPNP_ITERATIVE
-            );
-        }
-
-        if (!success) {
-            std::cerr << "[PnP] 所有解算器均失败" << std::endl;
-            return false;
-        }
-
-        // 轻量级 LM 精修（只做 5 次迭代，避免过度拟合）
-        cv::TermCriteria criteria(
-            cv::TermCriteria::EPS + cv::TermCriteria::COUNT,
-            5,  // ← 只迭代 5 次
-            0.001
-        );
-        cv::solvePnP(
-            object_pts, image_pts, camera_matrix_, dist_coeffs_,
-            result.rvec, result.tvec, true, cv::SOLVEPNP_ITERATIVE
-        );
-
-        // 转换为旋转矩阵
-        cv::Rodrigues(result.rvec, result.R);
-
-        // 计算重投影误差
-        result.reprojection_error = computeReprojectionError(
-            object_pts, image_pts, result.rvec, result.tvec
-        );
-
-        result.success = true;
-        result.matched_count = (int)object_pts.size();
-        result.inlier_count = (int)object_pts.size();  // IPPE 没有 RANSAC，所有点都是内点
-
-        std::cout << "[PnP] ✅ IPPE 解算成功，重投影误差="
-            << result.reprojection_error << " px" << std::endl;
-
-        return true;
-    }
-
-
-
-    // RANSAC + EPNP
-    std::vector<int> inliers;
-    bool success = cv::solvePnPRansac(
-        object_pts, image_pts, camera_matrix_, dist_coeffs_,
-        result.rvec, result.tvec, false,
-        config_.ransac_iterations,
-        config_.ransac_threshold,
-        config_.ransac_confidence,
-        inliers,
-        cv::SOLVEPNP_EPNP
-    );
-
-    if (!success || inliers.size() < 4) {
-        std::cerr << "[PoseSolver] RANSAC 失败，内点数=" << inliers.size() << std::endl;
-        return false;
-    }
+    return solveGeneralPnP(object_pts, image_pts, result);   // 不执行共面判断
+}
 
 // 自动匹配 + PnP 解算
 PoseResult PoseSolver::solve(const std::vector<cv::Point2f>& image_points) {
     PoseResult result;
 
     if (!is_initialized_) {
-        std::cerr << "相机内参未初始化" << std::endl;
+        // std::cerr << "相机内参未初始化" << std::endl;
+        LOG_ERROR("相机内参未初始化");
         return result;
     }
 
     if (object_points_.empty()) {
-        std::cerr << "未设置 3D 点库" << std::endl;
+        // std::cerr << "未设置 3D 点库" << std::endl;
+        LOG_ERROR("未设置 3D 点库");
         return result;
     }
 
     if (image_points.size() < 4) {
-        std::cerr << "2D 点不足：" << image_points.size() << " < 4" << std::endl;
+        // std::cerr << "2D 点不足：" << image_points.size() << " < 4" << std::endl;
+        LOG_ERROR("2D 点不足");
         return result;
     }
 
@@ -650,13 +645,15 @@ PoseResult PoseSolver::solve(const std::vector<cv::Point2f>& image_points) {
     std::vector<cv::Point2f> matched_2d;
     std::vector<int> matched_indices;
 
+    
     bool match_ok = matchByDistance(
         object_points_, image_points,
         matched_3d, matched_2d, matched_indices
     );
 
     if (!match_ok || matched_3d.size() < 4) {
-        std::cerr << "距离匹配失败" << std::endl;
+        // std::cerr << "距离匹配失败" << std::endl;
+        LOG_ERROR("距离匹配失败");
         return result;
     }
 
@@ -667,9 +664,24 @@ PoseResult PoseSolver::solve(const std::vector<cv::Point2f>& image_points) {
     bool pnp_ok = solvePnP(matched_3d, matched_2d, result);
 
     if (!pnp_ok) {
-        std::cerr << "PnP 解算失败" << std::endl;
+        // std::cerr << "PnP 解算失败" << std::endl;
+        LOG_ERROR("PnP 解算失败");
         return result;
     }
+
+    // --------------测试
+    for (size_t i = 0; i < object_points_.size(); ++i)
+    {
+        auto d = object_points_[i] - object_points_[0];
+        std::cout << "点 " << i << " 相对于点 0 的偏移: " << std::endl;
+        std::cout
+            << i << " : "
+            << d.x << ", "
+            << d.y << ", "
+            << d.z << std::endl;
+    }
+
+    // ----------------
 
     result.success = true;
     return result;
@@ -679,21 +691,38 @@ PoseResult PoseSolver::solve(const std::vector<cv::Point2f>& image_points) {
 // 调试用
 PoseResult PoseSolver::solveDebug(const std::vector<cv::Point2f>& image_points) {
     std::cout << "\n========== PoseSolver Debug ==========" << std::endl;
-    std::cout << "输入 2D 点数: " << image_points.size() << std::endl;
-    std::cout << "3D 点库大小: " << object_points_.size() << std::endl;
+    LOG_INFO("========== PoseSolver Debug ==========");
+    // std::cout << "输入 2D 点数: " << image_points.size() << std::endl;
+    LOG_INFO("输入 2D 点数: {}", image_points.size());
+    // std::cout << "3D 点库大小: " << object_points_.size() << std::endl;
+    LOG_INFO("3D 点库大小: {}", object_points_.size());
 
     auto result = solve(image_points);
 
     if (result.success) {
-        std::cout << "  解算成功！" << std::endl;
-        std::cout << "  平移向量 (mm): " << result.tvec.t() << std::endl;
-        std::cout << "  旋转向量: " << result.rvec.t() << std::endl;
-        std::cout << "  重投影误差: " << result.reprojection_error << " 像素" << std::endl;
-        std::cout << "  内点数: " << result.inlier_count << std::endl;
-        std::cout << "  匹配点数: " << result.matched_count << std::endl;
+        // std::cout << "  解算成功！" << std::endl;
+        LOG_INFO("解算成功！");
+        // std::cout << "  平移向量 (mm): " << result.tvec.t() << std::endl;
+        
+        // opencv的mat类型转为字符串输出
+        std::ostringstream oss;
+        oss << result.tvec.t();
+        LOG_INFO("平移向量 (mm): {}", oss.str());
+
+        // std::cout << "  旋转向量: " << result.rvec.t() << std::endl;
+        oss << result.rvec.t();
+        LOG_INFO("旋转向量: {}", oss.str());
+
+        // std::cout << "  重投影误差: " << result.reprojection_error << " 像素" << std::endl;
+        LOG_INFO("重投影误差: {} 像素", result.reprojection_error);
+        // std::cout << "  内点数: " << result.inlier_count << std::endl;
+        LOG_INFO("内点数: {}", result.inlier_count);
+        // std::cout << "  匹配点数: " << result.matched_count << std::endl;
+        LOG_INFO("匹配点数: {}", result.matched_count);
     }
     else {
         std::cout << "  解算失败" << std::endl;
+        LOG_INFO("解算失败");
     }
 
     return result;

@@ -45,7 +45,7 @@ public:
             logger->flush_on(spdlog::level::info);
             spdlog::set_default_logger(logger);
 
-            LOG_INFO("=== 日志系统初始化完成 ===");
+            LOG_INFO("日志系统初始化完成");
 
         }
         catch (const spdlog::spdlog_ex& ex) {

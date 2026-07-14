@@ -70,7 +70,6 @@ void onMouse(int event, int x, int y, int flags, void* userdata) {
         cv::Point2d mouse_orig;
         mouse_orig.x = inv_transform.at<double>(0, 0) * x + inv_transform.at<double>(0, 1) * y + inv_transform.at<double>(0, 2);
         mouse_orig.y = inv_transform.at<double>(1, 0) * x + inv_transform.at<double>(1, 1) * y + inv_transform.at<double>(1, 2);
-        std::cout << "[Mouse] Original image coordinate: (" << mouse_orig.x << ", " << mouse_orig.y << ")" << std::endl;
         drag_start = cv::Point2d(x, y);
         start_transform = g_transform.clone();
     }
@@ -96,12 +95,8 @@ void updateDisplay() {
     cv::Mat warped;
     cv::warpAffine(g_original_image, warped, g_transform, g_window_size, cv::INTER_LINEAR);
 
-    // 操作提示
-    cv::putText(warped, "Mouse: Scroll to zoom | Left-drag to pan | R to reset",
-        cv::Point(10, 60), cv::FONT_HERSHEY_SIMPLEX, 0.5, cv::Scalar(200, 200, 200), 1);
-
     g_display_image = warped;
-    cv::imshow("Feature Extraction + Grid + Zoom", g_display_image);
+    cv::imshow("test_image", g_display_image);
     g_need_update = false;
 }
 
@@ -368,9 +363,11 @@ int main() {
     g_transform.at<double>(1, 2) = (g_window_size.height - g_original_image.rows * init_scale) / 2.0;
 
     // 然后创建窗口并设置回调
-    cv::namedWindow("Feature Extraction + Grid + Zoom", cv::WINDOW_NORMAL);
-    cv::resizeWindow("Feature Extraction + Grid + Zoom", g_window_size.width, g_window_size.height);
-    cv::setMouseCallback("Feature Extraction + Grid + Zoom", onMouse);
+    
+    cv::namedWindow("test_image", cv::WINDOW_NORMAL);
+    cv::resizeWindow("test_image", g_window_size.width, g_window_size.height);
+    cv::setMouseCallback("test_image", onMouse);
+    
 
 
 

@@ -51,6 +51,7 @@ struct PoseSolverConfig {
     int ippe_ransac_samples = 100;             // IPPE RANSAC 采样次数
     bool enable_ippe_ransac = true;            // 是否启用 IPPE RANSAC
     double ippe_ransac_threshold = 2.5;        // IPPE RANSAC 重投影阈值
+    double coplanar_distance_threshold = 1.0;  // 共面判定阈值（毫米）
 
     // 解算器策略
     bool prefer_ippe_for_plane = true;         // 共面时优先使用 IPPE

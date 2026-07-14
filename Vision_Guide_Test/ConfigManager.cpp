@@ -1,5 +1,6 @@
 ﻿#include "ConfigManager.h"
 #include <iostream>
+#include "Logger.h"
 
 // 读取 JSON 配置文件到结构体
 void ConfigManager::from_json(const json& j, CameraConfig& c) {
@@ -28,7 +29,8 @@ void ConfigManager::from_json(const json& j, CameraConfig& c) {
                 );
         }
         else {
-            std::cerr << "[ConfigManager] dist_coeffs 格式错误，使用默认畸变（全0）" << std::endl;
+            // std::cerr << "[ConfigManager] dist_coeffs 格式错误，使用默认畸变（全0）" << std::endl;
+            LOG_ERROR("[ConfigManager] dist_coeffs 格式错误，使用默认畸变（全0）");
         }
     }
 
@@ -118,7 +120,8 @@ bool ConfigManager::loadConfig(const std::string& filename, AppConfig& config) {
     try {
         std::ifstream file(filename);
         if (!file.is_open()) {
-            std::cerr << "[ConfigManager] 无法打开配置文件: " << filename << std::endl;
+            // std::cerr << "[ConfigManager] 无法打开配置文件: " << filename << std::endl;
+            LOG_ERROR("[ConfigManager] 无法打开配置文件: {}", filename);
             return false;
         }
 
@@ -128,16 +131,17 @@ bool ConfigManager::loadConfig(const std::string& filename, AppConfig& config) {
 
         from_json(j, config);
 
-        std::cout << "[ConfigManager] 配置已加载: " << filename << std::endl;
-        std::cout << "[ConfigManager] 3D 点数: " << config.object_points.size() << std::endl;
-        std::cout << "[ConfigManager] ROI 数: " << config.rois.size() << std::endl;
-        std::cout << "[ConfigManager] YOLO: " << (config.yolo.enable ? "启用" : "禁用") << std::endl;
-        std::cout << "[ConfigManager] PLC: " << (config.plc.enable ? "启用" : "禁用") << std::endl;
+        LOG_INFO("[ConfigManager] 配置已加载: {}", filename);
+        LOG_INFO("[ConfigManager] 3D 点数: {}", config.object_points.size());
+        LOG_INFO("[ConfigManager] ROI 数: {}", config.rois.size());
+        LOG_INFO("[ConfigManager] YOLO: {}", config.yolo.enable ? "启用" : "禁用");
+        LOG_INFO("[ConfigManager] PLC: {}", config.plc.enable ? "启用" : "禁用");
 
         return true;
     }
     catch (const std::exception& e) {
-        std::cerr << "[ConfigManager] 加载失败: " << e.what() << std::endl;
+        // std::cerr << "[ConfigManager] 加载失败: " << e.what() << std::endl;
+        LOG_ERROR("[ConfigManager] 加载失败: {}", e.what());
         return false;
     }
 }
@@ -225,11 +229,13 @@ bool ConfigManager::saveConfigTemplate(const std::string& filename) {
         file << j.dump(4);
         file.close();
 
-        std::cout << "[ConfigManager] 配置模板已保存: " << filename << std::endl;
+        // std::cout << "[ConfigManager] 配置模板已保存: " << filename << std::endl;
+        LOG_INFO("[ConfigManager] 配置模板已保存: {}", filename);
         return true;
     }
     catch (const std::exception& e) {
-        std::cerr << "[ConfigManager] 保存模板失败: " << e.what() << std::endl;
+        // std::cerr << "[ConfigManager] 保存模板失败: " << e.what() << std::endl;
+        LOG_ERROR("[ConfigManager] 保存模板失败: {}", e.what());
         return false;
     }
 }

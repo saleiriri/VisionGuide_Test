@@ -1,4 +1,5 @@
 ﻿#include "MultiFramePoseAverager.h"
+#include "Logger.h"
 
 bool MultiFramePoseAverager::addPose(const cv::Mat& rvec, const cv::Mat& tvec, double reprojection_error) {
     // 防呆：剔除质量明显不佳的帧（例如振动或严重遮挡）
@@ -11,8 +12,8 @@ bool MultiFramePoseAverager::addPose(const cv::Mat& rvec, const cv::Mat& tvec, d
     tvecs_.push_back(tvec.clone());
     errors_.push_back(reprojection_error);
 
-    std::cout << "[Frame Captured] " << rvecs_.size() << "/" << max_frames_
-        << " (Reproj Err: " << reprojection_error << " px)" << std::endl;
+    // std::cout << "[Frame Captured] " << rvecs_.size() << "/" << max_frames_ << " (Reproj Err: " << reprojection_error << " px)" << std::endl;
+    LOG_INFO("[MultiFramePoseAverager] Frame captured: {}/{}", rvecs_.size(), max_frames_);
 
     // 如果收集了足够的帧，执行融合计算
     if ((int)rvecs_.size() >= max_frames_) {
@@ -23,14 +24,14 @@ bool MultiFramePoseAverager::addPose(const cv::Mat& rvec, const cv::Mat& tvec, d
 }
 
 void MultiFramePoseAverager::computeFinalPose() {
-    // 1. 平移向量取均值
+    // 平移向量取均值
     cv::Mat t_sum = cv::Mat::zeros(3, 1, CV_64F);
     for (const auto& t : tvecs_) {
         t_sum += t;
     }
     tvec_final_ = t_sum / (double)tvecs_.size();
 
-    // 2. 旋转矩阵取平均（使用四元数 / 旋转矩阵线性平均 + SVD 正交化）
+    // 旋转矩阵取平均（使用四元数 / 旋转矩阵线性平均 + SVD 正交化）
     cv::Mat R_sum = cv::Mat::zeros(3, 3, CV_64F);
     for (const auto& rvec : rvecs_) {
         cv::Mat R;
@@ -39,7 +40,7 @@ void MultiFramePoseAverager::computeFinalPose() {
     }
     cv::Mat R_avg = R_sum / (double)rvecs_.size();
 
-    // SVD 正交化，确保结果依然是合法的旋转矩阵（防止数值漂移）
+    // SVD 正交化，确保结果依然是合法的旋转矩阵
     cv::Mat U, W, Vt;
     cv::SVDecomp(R_avg, W, U, Vt);
     R_avg = U * Vt; // 强制为正交矩阵

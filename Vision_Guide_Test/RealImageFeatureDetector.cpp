@@ -2,6 +2,7 @@
 #include <opencv2/imgproc.hpp>
 #include <cmath>
 #include <numeric>
+#include "Logger.h"
 
 double RealImageFeatureDetector::calculateCircularity(const std::vector<cv::Point>& contour) {
     double area = cv::contourArea(contour);
@@ -9,50 +10,6 @@ double RealImageFeatureDetector::calculateCircularity(const std::vector<cv::Poin
     if (perimeter <= 0 || area <= 0) return 0.0;
     return 4.0 * CV_PI * area / (perimeter * perimeter);
 }
-
-/*bool RealImageFeatureDetector::detectInSingleROI(const cv::Mat& image, const ROIParams& params,
-    DetectedFeature& outFeature, double& bestScore) {
-    
-
-    // 裁剪ROI
-    cv::Rect valid_roi = params.roi & cv::Rect(0, 0, image.cols, image.rows);
-    if (valid_roi.width <= 0 || valid_roi.height <= 0) return false;
-    cv::Mat roi_img = image(valid_roi);
-    
-    
-    
-    
-    // 转为灰度
-    cv::Mat gray;
-    if (roi_img.channels() == 3) {
-        cv::cvtColor(roi_img, gray, cv::COLOR_BGR2GRAY);
-    }
-    else {
-        gray = roi_img.clone();
-    }
-
-    // 高斯模糊
-    cv::GaussianBlur(gray, gray, cv::Size(3, 3), 1.5);
-
-    // 二值化
-    cv::Mat binary;
-    cv::adaptiveThreshold(gray, binary, 255, cv::ADAPTIVE_THRESH_GAUSSIAN_C,cv::THRESH_BINARY_INV, 15, 8);
-
-
-    cv::Mat edges;
-    cv::Canny(gray, edges, 20, 60); // 提取边缘
-    cv::Mat kernel = cv::getStructuringElement(cv::MORPH_ELLIPSE, cv::Size(3, 3));
-    
-    //cv::morphologyEx(edges, edges, cv::MORPH_OPEN, kernel);   // 开运算
-    cv::morphologyEx(edges, edges, cv::MORPH_CLOSE, kernel);
-
-    // 调试
-    cv::imshow("Canny Edges", edges);
-    cv::waitKey(0);
-    
-
-    return true;
-}*/
 
 // 双线性差值亚像素灰度值采样
 static float getPixelValue(const cv::Mat& img, float x, float y) {
@@ -151,7 +108,7 @@ static CircleScore evaluateEllipse(
     double theta = ellipse.angle * CV_PI / 180.0;
 
 
-    // 新增：等弧长采样     预计算弧长查找表，然后二分查找等弧长对应的角度
+    // 等弧长采样     预计算弧长查找表，然后二分查找等弧长对应的角度
     const int TABLE_SIZE = 1000;                           // 查找表精度
 
     // 预计算弧长表（从 0 到 2π）
@@ -197,8 +154,7 @@ static CircleScore evaluateEllipse(
         double t_curr = angles[idx];
         double arc_prev = arc_lengths[idx - 1];
         double arc_curr = arc_lengths[idx];
-        double t = t_prev + (t_curr - t_prev) *
-            (target_arc - arc_prev) / (arc_curr - arc_prev);
+        double t = t_prev + (t_curr - t_prev) * (target_arc - arc_prev) / (arc_curr - arc_prev);   // t为当前采样点的角度
 
         // 用插值后的角度计算椭圆上的点
         float x_local = a * cos(t);
@@ -209,7 +165,7 @@ static CircleScore evaluateEllipse(
         // 边界检查
         if (px < 1 || px >= gray.cols - 1 || py < 1 || py >= gray.rows - 1) continue;
 
-        // 采样梯度值（亚像素）
+        // 采样梯度值
         float gx = getPixelValue(grad_x, px, py);
         float gy = getPixelValue(grad_y, px, py);
         float mag = sqrt(gx * gx + gy * gy);
@@ -389,8 +345,8 @@ static bool collectCandidatesInROI(const cv::Mat& image, const ROIParams& params
 
 bool RealImageFeatureDetector::detectWithEllipse(const cv::Mat& image, std::vector<DetectedFeature>& features) {
     if (image.empty() || roiParams_.empty()) {
-        std::cout << "[Debug] 检测失败：image.empty()=" << image.empty()
-            << ", roiParams_.empty()=" << roiParams_.empty() << std::endl;
+        std::cout << "[Debug] 检测失败：image.empty()=" << image.empty() << ", roiParams_.empty()=" << roiParams_.empty() << std::endl;
+        LOG_ERROR("检测失败：image.empty()={}, roiParams_.empty()={}", image.empty(), roiParams_.empty());
         return false;
     }
     features.clear();
@@ -428,8 +384,8 @@ bool RealImageFeatureDetector::detectWithEllipse(const cv::Mat& image, std::vect
 
         // 动态阈值判断
         if (best.score.final_score < 10.0) {
-            std::cout << "[ROI " << i << "] 最高分：" << best.score.final_score
-                << "，可信度不足" << std::endl;
+            std::cout << "[ROI " << i << "] 最高分：" << best.score.final_score << "，可信度不足" << std::endl;
+            LOG_INFO("[ROI {}] 最高分：{}，可信度不足", i, best.score.final_score);
             return false;
         }
 
