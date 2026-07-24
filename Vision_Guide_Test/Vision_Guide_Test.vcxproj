@@ -183,6 +183,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\..\终版源码\VI-2509 视觉引导算法源码\fsk\foxconn_final\mea\snap7\snap7.dll" />
+    <None Include="model\best.onnx" />
+    <None Include="model\best.onnx.data" />
+    <None Include="model\best.pt" />
   </ItemGroup>
   <ItemGroup>
     <Library Include="snap7\snap7.lib" />

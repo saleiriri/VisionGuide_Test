@@ -22,6 +22,9 @@
     <Filter Include="snap7">
       <UniqueIdentifier>{d0180022-026b-40cf-a85f-bfe267316b0c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="yolo\model">
+      <UniqueIdentifier>{34b31d5c-df86-4c6b-8a79-b6188f860943}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Vision_Guide_Test.cpp">
@@ -89,6 +92,15 @@
   <ItemGroup>
     <None Include="..\..\..\终版源码\VI-2509 视觉引导算法源码\fsk\foxconn_final\mea\snap7\snap7.dll">
       <Filter>snap7</Filter>
+    </None>
+    <None Include="model\best.onnx">
+      <Filter>yolo\model</Filter>
+    </None>
+    <None Include="model\best.onnx.data">
+      <Filter>yolo\model</Filter>
+    </None>
+    <None Include="model\best.pt">
+      <Filter>yolo\model</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

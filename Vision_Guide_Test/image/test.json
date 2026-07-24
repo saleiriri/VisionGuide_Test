@@ -1,0 +1,46 @@
+{
+  "version": "7.0.4",
+  "flags": {},
+  "shapes": [
+    {
+      "label": "hole1",
+      "points": [
+        [
+          867.1779935275079,
+          1132.0776699029127
+        ],
+        [
+          1061.3527508090615,
+          1306.8349514563106
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    },
+    {
+      "label": "hole2",
+      "points": [
+        [
+          1019.2815533980581,
+          1856.9967637540449
+        ],
+        [
+          1229.6375404530745,
+          2051.1715210355983
+        ]
+      ],
+      "group_id": null,
+      "description": "",
+      "shape_type": "rectangle",
+      "flags": {},
+      "mask": null
+    }
+  ],
+  "imagePath": "test.png",
+  "imageData": null,
+  "imageHeight": 3036,
+  "imageWidth": 4024
+}

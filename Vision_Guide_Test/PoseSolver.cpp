@@ -377,6 +377,7 @@ bool PoseSolver::solveGeneralPnP(
     const std::vector<cv::Point2f>& image_pts,
     PoseResult& result) {
     result.solver_used = "EPNP + RANSAC";
+    LOG_INFO("[PnP] 使用 EPNP + RANSAC 解算，点数={}", object_pts.size());
 
     std::vector<int> inliers;
     bool success = cv::solvePnPRansac(
@@ -474,6 +475,9 @@ void PoseSolver::reset() {
 }
 
 // 距离矩阵自动匹配
+/*
+由于使用了Roi匹配且选点顺序固定，所以不需要使用距离矩阵匹配，直接按顺序匹配即可
+*/
 bool PoseSolver::matchByDistance(
     const std::vector<cv::Point3f>& object_3d_lib,
     const std::vector<cv::Point2f>& image_2d_pts,
